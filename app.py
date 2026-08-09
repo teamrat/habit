@@ -184,13 +184,13 @@ def prepare_inputs(sand, silt, clay, bd, oc, ksat, wp_kpa):
     mask = np.zeros((1, 4), dtype=np.float32)
     mask[0, 0] = 1.0
 
-    if bd is not None and bd > 0:
+    if bd is not None:
         bd_sc = robust_scale(np.array([[float(bd)]]), SCALER_PARAMS["bd"]["center"], SCALER_PARAMS["bd"]["scale"])
         mask[0, 1] = 1.0
     else:
         bd_sc = np.zeros((1, 1), dtype=np.float32)
 
-    if oc is not None and oc > 0:
+    if oc is not None:
         oc_val = float(oc)
         if oc_val > 1.0:
             oc_val /= 100
@@ -200,7 +200,7 @@ def prepare_inputs(sand, silt, clay, bd, oc, ksat, wp_kpa):
     else:
         oc_sc = np.zeros((1, 1), dtype=np.float32)
 
-    if ksat is not None and ksat > 0:
+    if ksat is not None:
         ksat_log = np.log10(max(float(ksat), 1e-6))
         ksat_sc = robust_scale(np.array([[ksat_log]]), SCALER_PARAMS["ksat"]["center"], SCALER_PARAMS["ksat"]["scale"])
         mask[0, 3] = 1.0
@@ -311,9 +311,9 @@ with tab1:
             default_sand = float(ex["sand"])
             default_silt = float(ex["silt"])
             default_clay = float(ex["clay"])
-            default_bd   = float(ex["bd"])   if ex["bd"]   is not None else 0.0
-            default_oc   = float(ex["oc"])   if ex["oc"]   is not None else 0.0
-            default_ksat = float(ex["ksat"]) if ex["ksat"] is not None else 0.0
+            default_bd   = float(ex["bd"])   if ex["bd"]   is not None else None
+            default_oc   = float(ex["oc"])   if ex["oc"]   is not None else None
+            default_ksat = float(ex["ksat"]) if ex["ksat"] is not None else None
         else:
             default_sand, default_silt, default_clay = 40.0, 40.0, 20.0
             default_bd, default_oc, default_ksat = 1.35, 1.2, 50.0
@@ -324,10 +324,10 @@ with tab1:
         silt_in = c2.number_input("Silt", value=default_silt, format="%.1f", key="silt")
         clay_in = c3.number_input("Clay", value=default_clay, format="%.1f", key="clay")
 
-        st.markdown("**Optional properties** *(leave at 0 to omit)*")
-        bd_in   = st.number_input("Bulk density (g/cm³)", value=default_bd,   format="%.2f", key="bd")
-        oc_in   = st.number_input("Organic carbon (%)",   value=default_oc,   format="%.2f", key="oc")
-        ksat_in = st.number_input("Ksat (cm/day)",        value=default_ksat, format="%.1f", key="ksat")
+        st.markdown("**Optional properties** *(leave empty to omit)*")
+        bd_in   = st.number_input("Bulk density (g/cm³)", value=default_bd,   format="%.2f", key="bd",   min_value=0.0, placeholder="not provided")
+        oc_in   = st.number_input("Organic carbon (%)",   value=default_oc,   format="%.2f", key="oc",   min_value=0.0, placeholder="not provided")
+        ksat_in = st.number_input("Ksat (cm/day)",        value=default_ksat, format="%.1f", key="ksat", min_value=0.0, placeholder="not provided")
 
         st.markdown("**Water potential range**")
         rc1, rc2, rc3 = st.columns(3)
@@ -349,9 +349,9 @@ with tab1:
                     int(n_pts),
                 )
 
-                bd_val   = bd_in   if bd_in   > 0 else None
-                oc_val   = oc_in   if oc_in   > 0 else None
-                ksat_val = ksat_in if ksat_in > 0 else None
+                bd_val   = bd_in    # None if empty
+                oc_val   = oc_in    # None if empty
+                ksat_val = ksat_in  # None if empty
 
                 feed, mask = prepare_inputs(
                     sand_in, silt_in, clay_in, bd_val, oc_val, ksat_val, wp_kpa
@@ -436,7 +436,7 @@ with tab2:
         """Upload a CSV with columns: `sand`, `silt`, `clay` (required),
 plus optional `bd`, `oc`, `ksat`, `soil_id`.
 Values can be percentages (0–100) or fractions (0–1).
-Missing optional properties should be blank or 0."""
+Missing optional properties should be blank (empty cells)."""
     )
 
     csv_file = st.file_uploader("Upload CSV", type=["csv"])
@@ -462,9 +462,9 @@ Missing optional properties should be blank or 0."""
                 ksat = row.get(cols_lower.get("ksat")) if "ksat" in cols_lower else None
                 soil_id = row.get(cols_lower.get("soil_id", ""), idx + 1)
 
-                bd   = None if bd   is not None and (pd.isna(bd)   or bd   <= 0) else bd
-                oc   = None if oc   is not None and (pd.isna(oc)   or oc   <= 0) else oc
-                ksat = None if ksat is not None and (pd.isna(ksat) or ksat <= 0) else ksat
+                bd   = None if bd   is not None and pd.isna(bd)   else bd
+                oc   = None if oc   is not None and pd.isna(oc)   else oc
+                ksat = None if ksat is not None and pd.isna(ksat) else ksat
 
                 feed, mask = prepare_inputs(sand, silt, clay, bd, oc, ksat, wp_kpa)
                 all_preds = run_ensemble(ENSEMBLE, feed)
