@@ -1,0 +1,9 @@
+# ONNX weights are downloaded from HuggingFace at runtime
+onnx_weights/
+
+# Python
+__pycache__/
+*.pyc
+
+# Streamlit
+.streamlit/secrets.toml

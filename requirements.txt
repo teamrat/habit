@@ -1,0 +1,6 @@
+streamlit>=1.30
+onnxruntime>=1.16
+numpy>=1.21
+pandas>=1.3
+huggingface_hub>=0.20
+matplotlib>=3.5
