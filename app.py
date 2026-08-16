@@ -726,6 +726,12 @@ Rows in the same CSV can have different stages.
                     pd.to_numeric(df[cols_lower[col]],
                                   errors="coerce").values, n_wp)
 
+        # Pass through any extra columns from the input CSV
+        known = {"sand", "silt", "clay", "bd", "oc", "ksat", "soil_id"}
+        for orig_col in df.columns:
+            if orig_col.strip().lower() not in known:
+                out[orig_col] = np.repeat(df[orig_col].values, n_wp)
+
         out["stage"] = np.repeat(stages, n_wp)
         out["water_potential_kPa"] = np.tile(wp_kpa, n_soils)
         out["theta_mean"] = mean_all.ravel()
