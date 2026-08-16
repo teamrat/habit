@@ -212,6 +212,81 @@ def run_ensemble(sessions, feed):
     return np.array([s.run(None, feed)[0][0] for s in sessions])
 
 
+def prepare_batch_inputs(df, cols_lower, wp_kpa):
+    """Vectorized input preparation for a batch of soils."""
+    n = len(df)
+
+    # Texture — normalize to fractions summing to 1
+    sand = pd.to_numeric(df[cols_lower["sand"]], errors="coerce").values
+    silt = pd.to_numeric(df[cols_lower["silt"]], errors="coerce").values
+    clay = pd.to_numeric(df[cols_lower["clay"]], errors="coerce").values
+
+    totals = sand + silt + clay
+    if np.nanmean(totals) > 5:
+        sand, silt, clay = sand / 100, silt / 100, clay / 100
+        totals = sand + silt + clay
+    sand, silt, clay = sand / totals, silt / totals, clay / totals
+
+    texture_sc = robust_scale(
+        np.column_stack([sand, silt, clay]).astype(np.float32),
+        SCALER_PARAMS["texture"]["center"],
+        SCALER_PARAMS["texture"]["scale"],
+    )
+
+    mask = np.zeros((n, 4), dtype=np.float32)
+    mask[:, 0] = 1.0
+
+    # BD
+    if "bd" in cols_lower:
+        bd_raw = pd.to_numeric(df[cols_lower["bd"]], errors="coerce").values
+        bd_ok = ~np.isnan(bd_raw)
+        bd_vals = np.where(bd_ok, bd_raw, 0.0).reshape(-1, 1).astype(np.float32)
+        bd_sc = robust_scale(bd_vals, SCALER_PARAMS["bd"]["center"],
+                             SCALER_PARAMS["bd"]["scale"])
+        bd_sc[~bd_ok] = 0.0
+        mask[bd_ok, 1] = 1.0
+    else:
+        bd_sc = np.zeros((n, 1), dtype=np.float32)
+
+    # OC
+    if "oc" in cols_lower:
+        oc_raw = pd.to_numeric(df[cols_lower["oc"]], errors="coerce").values
+        oc_ok = ~np.isnan(oc_raw)
+        oc_vals = np.where(oc_ok, oc_raw, 0.0)
+        oc_vals = np.where(oc_vals > 1.0, oc_vals / 100, oc_vals)
+        oc_log = np.log1p(oc_vals).reshape(-1, 1).astype(np.float32)
+        oc_sc = robust_scale(oc_log, SCALER_PARAMS["oc"]["center"],
+                             SCALER_PARAMS["oc"]["scale"])
+        oc_sc[~oc_ok] = 0.0
+        mask[oc_ok, 2] = 1.0
+    else:
+        oc_sc = np.zeros((n, 1), dtype=np.float32)
+
+    # Ksat
+    if "ksat" in cols_lower:
+        ksat_raw = pd.to_numeric(df[cols_lower["ksat"]], errors="coerce").values
+        ksat_ok = ~np.isnan(ksat_raw)
+        ksat_vals = np.where(ksat_ok, ksat_raw, 1.0)
+        ksat_log = np.log10(np.maximum(ksat_vals, 1e-6)).reshape(-1, 1) \
+                   .astype(np.float32)
+        ksat_sc = robust_scale(ksat_log, SCALER_PARAMS["ksat"]["center"],
+                               SCALER_PARAMS["ksat"]["scale"])
+        ksat_sc[~ksat_ok] = 0.0
+        mask[ksat_ok, 3] = 1.0
+    else:
+        ksat_sc = np.zeros((n, 1), dtype=np.float32)
+
+    # Water potential — broadcast to all soils
+    wp_log = np.log10(wp_kpa).astype(np.float32)
+    wp_batch = np.tile(wp_log, (n, 1))
+
+    feed = {
+        "texture": texture_sc, "bd": bd_sc, "oc": oc_sc,
+        "ksat": ksat_sc, "mask": mask, "water_potential": wp_batch,
+    }
+    return feed, mask
+
+
 def make_plot(wp_kpa, all_preds, mean, lower, upper, stage_label):
     fig, ax = plt.subplots(figsize=(8, 4.8))
     fig.patch.set_facecolor("white")
@@ -514,84 +589,176 @@ with tab1:
 
 with tab2:
     st.markdown("#### Batch Prediction")
-    st.markdown(
-        "Upload a CSV with columns: `sand`, `silt`, `clay` (required), "
-        "plus optional `bd`, `oc`, `ksat`, `soil_id`. "
-        "Values can be percentages (0–100) or fractions (0–1). "
-        "Missing optional properties should be blank (empty cells)."
+
+    # ── Instructions + template ───────────────────────────────────────────
+    ci, ct = st.columns([2.5, 1])
+    ci.markdown(
+        "Upload a CSV with soil properties. The model detects which "
+        "properties each row provides and adapts automatically."
+    )
+    template_csv = (
+        "soil_id,sand,silt,clay,bd,oc,ksat\n"
+        "sample_1,40,40,20,1.35,1.2,50\n"
+        "sample_2,65,25,10,1.50,,\n"
+        "sample_3,90,5,5,,,\n"
+    )
+    ct.download_button("Download template CSV", template_csv,
+                       file_name="habit_template.csv", mime="text/csv",
+                       use_container_width=True)
+
+    with st.expander("CSV format details"):
+        st.markdown("""
+**Required columns:** `sand`, `silt`, `clay` — percentages (0–100) or
+fractions (0–1), must sum to ~100% or ~1.0
+
+**Optional columns** (leave cells empty to omit for that row):
+
+| Column | Units | Notes |
+|--------|-------|-------|
+| `bd` | g/cm³ | Bulk density |
+| `oc` | % by mass | Organic carbon |
+| `ksat` | cm/day | Saturated hydraulic conductivity |
+| `soil_id` | — | Row identifier (auto-numbered if absent) |
+
+The model assigns each row a **stage** based on available properties:
+Stage 0 (texture only) → Stage 1 (+BD) → Stage 2 (+OC) → Stage 3 (+Ksat).
+Rows in the same CSV can have different stages.
+""")
+
+    # ── Water potential input ─────────────────────────────────────────────
+    wp_text = st.text_input(
+        "Water potentials (kPa, comma-separated)",
+        value="1, 3, 6, 10, 33, 100, 300, 500, 1000, 5000, 10000, 15000",
+        help="Enter one or more values. Example: '33' for field capacity only.",
     )
 
+    # ── File upload + predict ─────────────────────────────────────────────
     csv_file = st.file_uploader("Upload CSV", type=["csv"])
     batch_btn = st.button("Predict All", type="primary", key="batch")
 
     if batch_btn and csv_file is not None:
+        # Parse water potentials
+        try:
+            wp_kpa = np.array(sorted(set(
+                float(x.strip()) for x in wp_text.split(",") if x.strip()
+            )))
+        except ValueError:
+            st.error("Could not parse water potential values. "
+                     "Use comma-separated numbers (e.g. '33' or '10, 33, 1500').")
+            st.stop()
+        if len(wp_kpa) == 0:
+            st.error("Enter at least one water potential value.")
+            st.stop()
+
+        # Read CSV
         df = pd.read_csv(csv_file)
-        cols_lower = {c.lower(): c for c in df.columns}
+        cols_lower = {c.strip().lower(): c for c in df.columns}
 
         if not all(k in cols_lower for k in ["sand", "silt", "clay"]):
             st.error(f"CSV must have sand, silt, clay columns. "
                      f"Found: {list(df.columns)}")
+            st.stop()
+
+        n_soils = len(df)
+        n_wp = len(wp_kpa)
+
+        # Prepare vectorized inputs
+        feed, mask = prepare_batch_inputs(df, cols_lower, wp_kpa)
+
+        # Chunked ensemble inference
+        CHUNK = 500
+        n_chunks = (n_soils + CHUNK - 1) // CHUNK
+        all_mean, all_std, all_q025, all_q975 = [], [], [], []
+
+        progress = st.progress(0, text=f"Processing {n_soils:,} soils "
+                               f"at {n_wp} water potential(s)…")
+
+        for ci_idx in range(n_chunks):
+            s = ci_idx * CHUNK
+            e = min(s + CHUNK, n_soils)
+            chunk_feed = {k: v[s:e] for k, v in feed.items()}
+
+            preds = np.array(
+                [sess.run(None, chunk_feed)[0] for sess in ENSEMBLE]
+            )  # (20, chunk, n_wp)
+
+            all_mean.append(np.mean(preds, axis=0))
+            all_std.append(np.std(preds, axis=0))
+            all_q025.append(np.percentile(preds, 2.5, axis=0))
+            all_q975.append(np.percentile(preds, 97.5, axis=0))
+
+            progress.progress(
+                (ci_idx + 1) / n_chunks,
+                text=f"Processed {e:,}/{n_soils:,} soils")
+
+        progress.empty()
+
+        # Concatenate results — each is (n_soils, n_wp)
+        mean_all = np.concatenate(all_mean, axis=0)
+        std_all  = np.concatenate(all_std,  axis=0)
+        q025_all = np.concatenate(all_q025, axis=0)
+        q975_all = np.concatenate(all_q975, axis=0)
+
+        # Soil IDs
+        if "soil_id" in cols_lower:
+            soil_ids = df[cols_lower["soil_id"]].values
         else:
-            wp_kpa = np.logspace(np.log10(1), np.log10(15000), 50)
-            results_all = []
-            progress = st.progress(0, text="Processing soils…")
+            soil_ids = np.arange(1, n_soils + 1)
 
-            for idx, row in df.iterrows():
-                sand = row[cols_lower["sand"]]
-                silt = row[cols_lower["silt"]]
-                clay = row[cols_lower["clay"]]
-                bd   = (row.get(cols_lower.get("bd"))
-                        if "bd" in cols_lower else None)
-                oc   = (row.get(cols_lower.get("oc"))
-                        if "oc" in cols_lower else None)
-                ksat = (row.get(cols_lower.get("ksat"))
-                        if "ksat" in cols_lower else None)
-                soil_id = row.get(cols_lower.get("soil_id", ""), idx + 1)
+        # Stage per soil
+        stage_map = {
+            (1, 0, 0, 0): "Stage 0", (1, 1, 0, 0): "Stage 1",
+            (1, 1, 1, 0): "Stage 2", (1, 1, 1, 1): "Stage 3",
+        }
+        stages = [stage_map.get(tuple(int(x) for x in mask[i]), "Custom")
+                  for i in range(n_soils)]
 
-                bd   = None if bd   is not None and pd.isna(bd)   else bd
-                oc   = None if oc   is not None and pd.isna(oc)   else oc
-                ksat = None if ksat is not None and pd.isna(ksat) else ksat
+        # Build output (long format: n_soils × n_wp rows)
+        out = {"soil_id": np.repeat(soil_ids, n_wp)}
 
-                feed, mask = prepare_inputs(
-                    sand, silt, clay, bd, oc, ksat, wp_kpa)
-                preds = run_ensemble(ENSEMBLE, feed)
-                m   = np.mean(preds, axis=0)
-                s   = np.std(preds, axis=0)
-                lo  = np.percentile(preds, 2.5, axis=0)
-                hi  = np.percentile(preds, 97.5, axis=0)
+        for col in ["sand", "silt", "clay"]:
+            out[col] = np.repeat(
+                pd.to_numeric(df[cols_lower[col]], errors="coerce").values,
+                n_wp)
+        for col in ["bd", "oc", "ksat"]:
+            if col in cols_lower:
+                out[col] = np.repeat(
+                    pd.to_numeric(df[cols_lower[col]],
+                                  errors="coerce").values, n_wp)
 
-                results_all.append(pd.DataFrame({
-                    "soil_id": soil_id,
-                    "water_potential_kPa": wp_kpa,
-                    "water_content_mean": m,
-                    "water_content_std": s,
-                    "water_content_q025": lo,
-                    "water_content_q975": hi,
-                }))
-                progress.progress((idx + 1) / len(df),
-                                  text=f"Processed {idx + 1}/{len(df)} soils")
+        out["stage"] = np.repeat(stages, n_wp)
+        out["water_potential_kPa"] = np.tile(wp_kpa, n_soils)
+        out["theta_mean"] = mean_all.ravel()
+        out["theta_std"]  = std_all.ravel()
+        out["theta_q025"] = q025_all.ravel()
+        out["theta_q975"] = q975_all.ravel()
 
-            combined = pd.concat(results_all, ignore_index=True)
-            progress.empty()
+        result_df = pd.DataFrame(out)
 
-            summary = (
-                combined.groupby("soil_id")
-                .agg(n_points=("water_content_mean", "count"),
-                     theta_sat=("water_content_mean", "max"),
-                     theta_15000=("water_content_mean", "min"))
-                .reset_index()
-            )
-            st.success(f"Predicted {len(df)} soils successfully.")
-            st.dataframe(summary, use_container_width=True, hide_index=True)
+        # Summary
+        stage_counts = pd.Series(stages).value_counts().sort_index()
+        stage_str = ", ".join(f"{v:,} {k}" for k, v in stage_counts.items())
+        st.success(
+            f"**{n_soils:,} soils × {n_wp} water potential(s) "
+            f"= {len(result_df):,} predictions.**  "
+            f"Stages: {stage_str}."
+        )
 
-            csv_buf = io.StringIO()
-            combined.to_csv(csv_buf, index=False)
-            st.download_button(
-                "Download batch results (CSV)",
-                csv_buf.getvalue(),
-                file_name="habit_batch_predictions.csv",
-                mime="text/csv",
-            )
+        # Preview
+        st.dataframe(result_df.head(50), use_container_width=True,
+                     hide_index=True)
+        if len(result_df) > 50:
+            st.caption(f"Showing first 50 of {len(result_df):,} rows.")
+
+        # Download
+        csv_buf = io.StringIO()
+        result_df.to_csv(csv_buf, index=False)
+        st.download_button(
+            "Download results (CSV)",
+            csv_buf.getvalue(),
+            file_name="habit_batch_predictions.csv",
+            mime="text/csv",
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════
