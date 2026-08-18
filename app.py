@@ -11,7 +11,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
-from matplotlib.ticker import FuncFormatter
 import streamlit as st
 import onnxruntime as ort
 from huggingface_hub import hf_hub_download
@@ -39,12 +38,14 @@ st.markdown("""
 .app-header { margin: 0.3rem 0 1.5rem 0; }
 .app-title {
     font-family: 'Fraunces', serif;
-    font-size: 40px !important; font-weight: 600; color: #2A2621;
+    font-size: 40px !important; font-weight: 600;
+    color: var(--text-color, #2A2621);
     margin: 0; letter-spacing: -0.015em;
 }
 .app-title span { font-weight: 400; }
 .app-subtitle {
-    font-size: 0.9rem; font-weight: 400; color: #726657;
+    font-size: 0.9rem; font-weight: 400;
+    color: var(--text-color, #726657); opacity: 0.6;
     margin: 0.15rem 0 0 0; letter-spacing: 0.02em;
 }
 
@@ -99,13 +100,13 @@ st.markdown("""
 
 /* Footer */
 .app-footer {
-    margin-top: 3rem; padding: 1.2rem 1.5rem;
-    background: #2A2621; border-radius: 12px;
-    font-size: 0.78rem; color: #B4A99A; line-height: 1.65;
+    margin-top: 3rem; padding: 0.8rem 1.5rem;
+    border-top: 1px solid var(--border-color, #DDD5C6);
+    font-size: 0.85rem; color: var(--text-color, #63594F); opacity: 0.7;
+    text-align: center; line-height: 1.65;
 }
-.app-footer a { color: #E39468; text-decoration: none; }
+.app-footer a { color: var(--primary-color, #A24A28); text-decoration: none; }
 .app-footer a:hover { text-decoration: underline; }
-.app-footer .copy { margin-top: 0.5rem; font-size: 0.72rem; color: #7A7060; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -355,7 +356,6 @@ def make_plot(wp_kpa, all_preds, mean, lower, upper, stage_label):
             label="Ensemble mean", zorder=5)
 
     ax.set_xscale("log")
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:g}'))
     ax.set_xlabel("Water potential |ψ| (kPa)", fontsize=11,
                   color=PLOT_INK)
     ax.set_ylabel("Volumetric water content θ (cm³/cm³)", fontsize=11,
@@ -700,8 +700,6 @@ with tab1:
                     ax_wp.plot(wp_kpa, wp_weights, color=PLOT_ACCENT,
                                linewidth=1.2)
                     ax_wp.set_xscale("log")
-                    ax_wp.xaxis.set_major_formatter(
-                        FuncFormatter(lambda x, _: f'{x:g}'))
                     ax_wp.set_xlabel("Water potential |ψ| (kPa)",
                                      fontsize=9, color=PLOT_INK_MUTED)
                     ax_wp.set_ylabel("Attention weight", fontsize=9,
@@ -1002,6 +1000,8 @@ of inputs.
 
 Developed at the
 [Soil Physics Lab](https://soilphysics.ucmerced.edu), UC Merced.
+See [Ghezzehei (2026)](https://doi.org/10.1029/2025WR042833) in
+*Water Resources Research* for full details.
 """)
 
     st.markdown("#### Performance")
@@ -1092,16 +1092,10 @@ result = predictor.predict(soil_dataframe)""", language="python")
 
 st.markdown("""
 <div class="app-footer">
-    <a href="https://soilphysics.ucmerced.edu" style="color:#E39468;
-    text-decoration:none; font-weight:600;">Soil Physics Lab</a>
-    &nbsp;·&nbsp; UC Merced<br>
-    Ghezzehei,&nbsp;T.A.&nbsp;(2026).
-    Interpretable soil water retention prediction using hierarchical attention
-    networks with uncertainty quantification.
-    <i>Water Resources Research</i>, 62, e2025WR042833.
-    <a href="https://doi.org/10.1029/2025WR042833"
-    style="color:#E39468;">doi:10.1029/2025WR042833</a><br>
-    <span style="opacity:0.5; font-size:0.8em;">
-    &copy; 2009&ndash;2026 Teamrat A. Ghezzehei</span>
+    <a href="https://soilphysics.ucmerced.edu">UC Merced Soil Physics Lab</a>
+    &nbsp;|&nbsp;
+    <a href="https://doi.org/10.1029/2025WR042833">Ghezzehei (WRR, 2026)</a>
+    &nbsp;|&nbsp;
+    &copy; 2026 Teamrat A. Ghezzehei
 </div>
 """, unsafe_allow_html=True)
