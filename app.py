@@ -37,11 +37,10 @@ header[data-testid="stHeader"] { background: transparent !important; }
 /* Header bar */
 .app-header {
     display: flex; align-items: baseline; gap: 0.7rem;
-    margin: 0.3rem 0 0.6rem 0; padding-bottom: 0.5rem;
-    border-bottom: 2px solid #e2e8f0;
+    margin: 0.3rem 0 0.6rem 0;
 }
 .app-title {
-    font-size: 1.6rem; font-weight: 800; color: #1e293b;
+    font-size: 2.2rem; font-weight: 800; color: #1e293b;
     margin: 0; letter-spacing: -0.02em;
 }
 .app-subtitle {
@@ -116,13 +115,6 @@ SCALER_PARAMS = {
     "ksat": {"center": [2.1206], "scale": [1.5133]},
 }
 
-EXAMPLE_SOILS = {
-    "Clay (heavy)":        {"sand": 10.0, "silt": 30.0, "clay": 60.0, "bd": 1.20, "oc": 2.0,  "ksat": 5.0},
-    "Sandy loam":          {"sand": 65.0, "silt": 25.0, "clay": 10.0, "bd": 1.50, "oc": 0.5,  "ksat": 200.0},
-    "Silt loam":           {"sand": 15.0, "silt": 65.0, "clay": 20.0, "bd": 1.30, "oc": 1.5,  "ksat": 25.0},
-    "Loam (average)":      {"sand": 40.0, "silt": 40.0, "clay": 20.0, "bd": 1.35, "oc": 1.2,  "ksat": 50.0},
-    "Sand (texture only)": {"sand": 90.0, "silt": 5.0,  "clay": 5.0,  "bd": None, "oc": None, "ksat": None},
-}
 
 # ── Load ONNX ensemble ───────────────────────────────────────────────────
 
@@ -386,32 +378,8 @@ with tab1:
     # ── Left panel: inputs ────────────────────────────────────────────────
 
     with left:
-        # Preset selector
-        preset = st.selectbox(
-            "Example soils",
-            ["— custom —"] + list(EXAMPLE_SOILS.keys()),
-            label_visibility="collapsed",
-            key="preset_sel",
-        )
-
-        # Reset widget state when preset changes
-        if "last_preset" not in st.session_state:
-            st.session_state.last_preset = None
-        if preset != st.session_state.last_preset:
-            st.session_state.last_preset = preset
-            for k in ["sand", "silt", "clay",
-                       "bd", "oc", "ksat",
-                       "bd_on", "oc_on", "ksat_on"]:
-                st.session_state.pop(k, None)
-
-        # Determine defaults from preset
-        if preset in EXAMPLE_SOILS:
-            ex = EXAMPLE_SOILS[preset]
-            d_sand, d_silt, d_clay = ex["sand"], ex["silt"], ex["clay"]
-            d_bd, d_oc, d_ksat = ex["bd"], ex["oc"], ex["ksat"]
-        else:
-            d_sand, d_silt, d_clay = 40.0, 40.0, 20.0
-            d_bd, d_oc, d_ksat = None, None, None
+        d_sand, d_silt, d_clay = 40.0, 40.0, 20.0
+        d_bd, d_oc, d_ksat = None, None, None
 
         # Texture
         st.markdown('<p class="section-label">Texture (%)</p>',
