@@ -27,27 +27,20 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
-
-/* Global */
+/* Layout */
 .block-container { padding-top: 0.5rem; max-width: 1400px; }
 
-/* Hide Streamlit hamburger menu and default header */
+/* Hide hamburger menu */
 #MainMenu { visibility: hidden; }
-header[data-testid="stHeader"] { background: transparent !important; }
 
-/* Header bar */
-.app-header {
-    margin: 0.3rem 0 1.5rem 0;
-}
+/* Header */
+.app-header { margin: 0.3rem 0 1.5rem 0; }
 .app-title {
-    font-family: 'Poppins', sans-serif;
-    font-size: 40px; font-weight: 500; color: #1e293b;
+    font-size: 40px !important; font-weight: 500; color: #1e293b;
     margin: 0; letter-spacing: -0.01em;
 }
 .app-title span { font-weight: 300; }
 .app-subtitle {
-    font-family: 'Poppins', sans-serif;
     font-size: 0.9rem; font-weight: 300; color: #94a3b8;
     margin: 0.15rem 0 0 0; letter-spacing: 0.02em;
 }
@@ -364,7 +357,7 @@ def make_plot(wp_kpa, all_preds, mean, lower, upper, stage_label):
 
 st.markdown("""
 <div class="app-header">
-    <p class="app-title"><span>Soil</span> HABIT</p>
+    <p class="app-title"><span>soil</span> HABIT</p>
     <p class="app-subtitle">Soil Water Retention Predictor</p>
 </div>
 """, unsafe_allow_html=True)

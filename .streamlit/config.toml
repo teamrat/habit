@@ -1,9 +1,16 @@
 [theme]
+base = "light"
+font = "Poppins:https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&display=swap, sans-serif"
 primaryColor = "#1d4ed8"
 backgroundColor = "#ffffff"
 secondaryBackgroundColor = "#f1f5f9"
 textColor = "#1e293b"
-font = "sans serif"
+borderColor = "#e2e8f0"
+baseRadius = "0.5rem"
+showWidgetBorder = true
+
+[theme.sidebar]
+backgroundColor = "#f1f5f9"
 
 [server]
 maxUploadSize = 10
