@@ -91,8 +91,9 @@ st.markdown("""
 .empty-state .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
 .empty-state p { font-size: 0.9rem; color: #726657; }
 
-/* Inputs */
+/* Inputs — hide +/- stepper buttons */
 .stNumberInput > div > div > input { text-align: center; }
+.stNumberInput button { display: none !important; }
 .stDownloadButton > button { width: 100%; }
 
 /* Footer */
@@ -423,30 +424,33 @@ with tab1:
         st.markdown('<p class="section-label">Optional properties</p>',
                     unsafe_allow_html=True)
 
-        bd_on = st.toggle("Bulk density (g/cm³)",
-                          value=(d_bd is not None), key="bd_on")
+        bd_c1, bd_c2 = st.columns([2, 1])
+        bd_on = bd_c1.toggle("Bulk density (g/cm³)",
+                             value=(d_bd is not None), key="bd_on")
         if bd_on:
-            bd_in = st.number_input(
+            bd_in = bd_c2.number_input(
                 "BD", value=d_bd if d_bd is not None else 1.35,
                 format="%.2f", key="bd", min_value=0.01,
                 label_visibility="collapsed")
         else:
             bd_in = None
 
-        oc_on = st.toggle("Organic carbon (%)",
-                          value=(d_oc is not None), key="oc_on")
+        oc_c1, oc_c2 = st.columns([2, 1])
+        oc_on = oc_c1.toggle("Organic carbon (%)",
+                             value=(d_oc is not None), key="oc_on")
         if oc_on:
-            oc_in = st.number_input(
+            oc_in = oc_c2.number_input(
                 "OC", value=d_oc if d_oc is not None else 1.2,
                 format="%.2f", key="oc", min_value=0.0,
                 label_visibility="collapsed")
         else:
             oc_in = None
 
-        ksat_on = st.toggle("Kₛₐₜ (cm/day)",
-                            value=(d_ksat is not None), key="ksat_on")
+        ksat_c1, ksat_c2 = st.columns([2, 1])
+        ksat_on = ksat_c1.toggle("Kₛₐₜ (cm/day)",
+                                 value=(d_ksat is not None), key="ksat_on")
         if ksat_on:
-            ksat_in = st.number_input(
+            ksat_in = ksat_c2.number_input(
                 "Ksat", value=d_ksat if d_ksat is not None else 50.0,
                 format="%.1f", key="ksat", min_value=0.0,
                 label_visibility="collapsed")
@@ -456,13 +460,13 @@ with tab1:
         # Water potential range
         st.markdown('<p class="section-label">Water potential range</p>',
                     unsafe_allow_html=True)
-        wc1, wc2 = st.columns(2)
+        wc1, wc2, wc3 = st.columns(3)
         wp_min = wc1.number_input("Min (kPa)", value=0.1,
                                   format="%.1f", key="wp_min")
         wp_max = wc2.number_input("Max (kPa)", value=15000.0,
                                   format="%.0f", key="wp_max")
-        n_pts = st.number_input("Points", value=50, key="n_pts",
-                                min_value=10, max_value=200)
+        n_pts = wc3.number_input("Points", value=50, key="n_pts",
+                                 min_value=10, max_value=200)
 
         # Predict button
         st.markdown("")
