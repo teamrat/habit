@@ -11,6 +11,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.ticker import FuncFormatter
 import streamlit as st
 import onnxruntime as ort
 from huggingface_hub import hf_hub_download
@@ -354,6 +355,7 @@ def make_plot(wp_kpa, all_preds, mean, lower, upper, stage_label):
             label="Ensemble mean", zorder=5)
 
     ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:g}'))
     ax.set_xlabel("Water potential |ψ| (kPa)", fontsize=11,
                   color=PLOT_INK)
     ax.set_ylabel("Volumetric water content θ (cm³/cm³)", fontsize=11,
@@ -471,7 +473,7 @@ with tab1:
         # Predict button
         st.markdown("")
         predict_btn = st.button("Predict", type="primary",
-                                use_container_width=True)
+                                width="stretch")
 
     # ── Run prediction (store in session state) ───────────────────────────
 
@@ -698,6 +700,8 @@ with tab1:
                     ax_wp.plot(wp_kpa, wp_weights, color=PLOT_ACCENT,
                                linewidth=1.2)
                     ax_wp.set_xscale("log")
+                    ax_wp.xaxis.set_major_formatter(
+                        FuncFormatter(lambda x, _: f'{x:g}'))
                     ax_wp.set_xlabel("Water potential |ψ| (kPa)",
                                      fontsize=9, color=PLOT_INK_MUTED)
                     ax_wp.set_ylabel("Attention weight", fontsize=9,
@@ -734,7 +738,7 @@ with tab1:
 
             tc, dc = st.columns([3, 1])
             tc.dataframe(pd.DataFrame(table_rows),
-                         use_container_width=True, hide_index=True)
+                         width="stretch", hide_index=True)
 
             # CSV download
             full_df = pd.DataFrame({
@@ -754,7 +758,7 @@ with tab1:
                 csv_buf.getvalue(),
                 file_name="habit_prediction.csv",
                 mime="text/csv",
-                use_container_width=True,
+                width="stretch",
             )
         else:
             # Empty state before first prediction
@@ -787,7 +791,7 @@ with tab2:
     )
     ct.download_button("Download template CSV", template_csv,
                        file_name="habit_template.csv", mime="text/csv",
-                       use_container_width=True)
+                       width="stretch")
 
     with st.expander("CSV format details"):
         st.markdown("""
@@ -965,7 +969,7 @@ Rows in the same CSV can have different stages.
         )
 
         # Preview
-        st.dataframe(result_df.head(50), use_container_width=True,
+        st.dataframe(result_df.head(50), width="stretch",
                      hide_index=True)
         if len(result_df) > 50:
             st.caption(f"Showing first 50 of {len(result_df):,} rows.")
@@ -1016,7 +1020,7 @@ Developed at the
             "0.049 [0.044, 0.055]", "0.039 [0.033, 0.049]",
             "0.038 [0.030, 0.047]", "0.030 [0.026, 0.035]"],
     })
-    st.dataframe(perf_df, use_container_width=True, hide_index=True)
+    st.dataframe(perf_df, width="stretch", hide_index=True)
 
     st.markdown("#### Ensemble spread")
     st.markdown("""
