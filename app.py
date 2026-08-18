@@ -437,7 +437,7 @@ with tab1:
         st.markdown('<p class="section-label">Water potential range</p>',
                     unsafe_allow_html=True)
         wc1, wc2 = st.columns(2)
-        wp_min = wc1.number_input("Min (kPa)", value=1.0,
+        wp_min = wc1.number_input("Min (kPa)", value=0.1,
                                   format="%.1f", key="wp_min")
         wp_max = wc2.number_input("Max (kPa)", value=15000.0,
                                   format="%.0f", key="wp_max")
@@ -462,6 +462,10 @@ with tab1:
                 np.log10(float(wp_max)),
                 int(n_pts),
             )
+            # Ensure key reference points are included
+            for ref_kpa in [0.1, 33.0, 1500.0]:
+                if max(float(wp_min), 0.1) <= ref_kpa <= float(wp_max):
+                    wp_kpa = np.union1d(wp_kpa, [ref_kpa])
             feed, mask = prepare_inputs(
                 sand_in, silt_in, clay_in, bd_in, oc_in, ksat_in, wp_kpa)
             stage_label = get_stage_label(mask)
@@ -509,23 +513,23 @@ with tab1:
                 f'<span class="stage-badge">{stage_label}</span>',
                 unsafe_allow_html=True)
 
-            # Summary metrics
-            theta_sat = mean[0]
-            theta_dry = mean[-1]
-            mean_sigma = np.mean(std)
+            # Summary metrics — interpolate at reference points
+            theta_sat = np.interp(0.1, wp_kpa, mean)
+            theta_fc = np.interp(33.0, wp_kpa, mean)
+            theta_pwp = np.interp(1500.0, wp_kpa, mean)
             st.markdown(f"""
             <div class="metric-row">
                 <div class="metric-card">
                     <div class="val">{theta_sat:.3f}</div>
-                    <div class="lbl">θ near sat.</div>
+                    <div class="lbl">θ<sub>sat</sub> (0.1 kPa)</div>
                 </div>
                 <div class="metric-card">
-                    <div class="val">{theta_dry:.4f}</div>
-                    <div class="lbl">θ at {wp_kpa[-1]:.0f} kPa</div>
+                    <div class="val">{theta_fc:.3f}</div>
+                    <div class="lbl">FC (33 kPa)</div>
                 </div>
                 <div class="metric-card">
-                    <div class="val">{mean_sigma:.4f}</div>
-                    <div class="lbl">Mean ens. σ</div>
+                    <div class="val">{theta_pwp:.3f}</div>
+                    <div class="lbl">PWP (1500 kPa)</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
