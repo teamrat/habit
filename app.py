@@ -95,29 +95,31 @@ header[data-testid="stHeader"] { background: transparent !important; }
 
 /* Tab-folder navigation */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 0; background: transparent;
-    border-bottom: 1px solid #d1d5db;
-    padding: 0;
+    gap: 0 !important; background: transparent !important;
+    border-bottom: 1px solid #d1d5db !important;
+    padding: 0 !important;
 }
-.stTabs [data-baseweb="tab"] {
-    padding: 9px 26px; font-weight: 500; font-size: 0.9rem;
-    border: 1px solid #d1d5db; border-bottom: none;
-    border-radius: 8px 8px 0 0;
-    background: #f1f5f9; color: #94a3b8;
-    margin-right: 2px; margin-bottom: -1px;
-    position: relative;
+.stTabs [data-baseweb="tab-list"] button {
+    padding: 9px 26px !important; font-weight: 500 !important;
+    font-size: 0.9rem !important;
+    border: 1px solid #d1d5db !important; border-bottom: none !important;
+    border-radius: 8px 8px 0 0 !important;
+    background: #f1f5f9 !important; color: #94a3b8 !important;
+    margin-right: 2px !important; margin-bottom: -1px !important;
+    position: relative !important;
 }
-.stTabs [data-baseweb="tab"]:hover {
-    background: #e8edf3; color: #64748b;
+.stTabs [data-baseweb="tab-list"] button:hover {
+    background: #e8edf3 !important; color: #64748b !important;
 }
-.stTabs [data-baseweb="tab"][aria-selected="true"] {
+.stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
     background: white !important; color: #1e293b !important;
-    font-weight: 700;
-    border-color: #d1d5db; border-bottom: 1px solid white !important;
-    z-index: 1;
+    font-weight: 700 !important;
+    border-color: #d1d5db !important;
+    border-bottom: 1px solid white !important;
+    z-index: 1 !important;
 }
-.stTabs [data-baseweb="tab-highlight"] { display: none; }
-.stTabs [data-baseweb="tab-border"] { display: none; }
+.stTabs [data-baseweb="tab-highlight"] { display: none !important; }
+.stTabs [data-baseweb="tab-border"] { display: none !important; }
 
 /* Footer */
 .app-footer {
