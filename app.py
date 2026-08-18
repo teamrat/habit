@@ -19,7 +19,7 @@ import shutil
 
 st.set_page_config(
     page_title="HABIT — Soil Water Retention",
-    page_icon="💧",
+    page_icon="🌍",
     layout="wide",
 )
 
@@ -27,6 +27,8 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
 /* Global */
 .block-container { padding-top: 0.5rem; max-width: 1400px; }
 
@@ -36,15 +38,18 @@ header[data-testid="stHeader"] { background: transparent !important; }
 
 /* Header bar */
 .app-header {
-    display: flex; align-items: baseline; gap: 0.7rem;
-    margin: 0.3rem 0 0.6rem 0;
+    margin: 0.3rem 0 1.5rem 0;
 }
 .app-title {
-    font-size: 2.2rem; font-weight: 800; color: #1e293b;
-    margin: 0; letter-spacing: -0.02em;
+    font-family: 'Poppins', sans-serif;
+    font-size: 40px; font-weight: 500; color: #1e293b;
+    margin: 0; letter-spacing: -0.01em;
 }
+.app-title span { font-weight: 300; }
 .app-subtitle {
-    font-size: 0.85rem; color: #64748b; margin: 0;
+    font-family: 'Poppins', sans-serif;
+    font-size: 0.9rem; font-weight: 300; color: #94a3b8;
+    margin: 0.15rem 0 0 0; letter-spacing: 0.02em;
 }
 
 /* Section labels */
@@ -359,8 +364,8 @@ def make_plot(wp_kpa, all_preds, mean, lower, upper, stage_label):
 
 st.markdown("""
 <div class="app-header">
-    <p class="app-title">\U0001f4a7 HABIT</p>
-    <p class="app-subtitle">Soil water retention prediction</p>
+    <p class="app-title"><span>Soil</span> HABIT</p>
+    <p class="app-subtitle">Soil Water Retention Predictor</p>
 </div>
 """, unsafe_allow_html=True)
 
