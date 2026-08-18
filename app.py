@@ -853,7 +853,8 @@ Rows in the same CSV can have different stages.
             chunk_feed = {k: v[s:e] for k, v in feed.items()}
 
             preds = np.array(
-                [sess.run(None, chunk_feed)[0] for sess in ENSEMBLE]
+                [sess.run(["water_content"], chunk_feed)[0]
+                 for sess in ENSEMBLE]
             )  # (20, chunk, n_wp)
 
             all_mean.append(np.mean(preds, axis=0))
