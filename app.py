@@ -950,17 +950,43 @@ property-specific encoders, cross-attention layers that learn interactions
 between properties, a monotonic output layer enforcing physically correct
 behavior, and hierarchical training so one model handles any combination
 of inputs.
-
-Provide whatever properties you have — the model adapts automatically.
 """)
 
-    ab_col1, ab_col2 = st.columns(2)
-    ab_col1.markdown(
-        '[Model weights (HuggingFace)](https://huggingface.co/Teamrat/habit)'
-        '&ensp;·&ensp;`pip install habit-ptf`')
-    ab_col2.code("""from habit_ptf import load_ensemble
-predictor = load_ensemble()
-result = predictor.predict(soil_dataframe)""", language="python")
+    st.markdown("#### Performance")
+    st.markdown("Independent test set, 95% CI from cluster bootstrap "
+                "(1,000 iterations):")
+
+    perf_df = pd.DataFrame({
+        "Inputs":         ["Texture only", "+ Bulk density",
+                           "+ Organic carbon", "+ Ksat"],
+        "R²":        ["0.779 [0.737, 0.817]", "0.846 [0.748, 0.906]",
+                           "0.862 [0.781, 0.920]", "0.923 [0.899, 0.944]"],
+        "RMSE (cm³/cm³)": [
+            "0.067 [0.060, 0.074]", "0.056 [0.044, 0.070]",
+            "0.052 [0.040, 0.066]", "0.043 [0.036, 0.050]"],
+        "MAE (cm³/cm³)": [
+            "0.049 [0.044, 0.055]", "0.039 [0.033, 0.049]",
+            "0.038 [0.030, 0.047]", "0.030 [0.026, 0.035]"],
+    })
+    st.dataframe(perf_df, use_container_width=True, hide_index=True)
+
+    st.markdown("#### Ensemble spread")
+    st.markdown("""
+The shaded band and σ values represent the spread among 20 independently
+trained models.  This is *not* a calibrated uncertainty interval.  However,
+ensemble spread is strongly correlated with prediction error
+([Ghezzehei, 2026](https://doi.org/10.1029/2025WR042833))
+and can be used as an indicator of prediction reliability.
+""")
+
+    fig_dir = os.path.join(os.path.dirname(__file__), "figures")
+    ec1, ec2 = st.columns(2)
+    rmse_path = os.path.join(fig_dir, "rmse_vs_disagreement.png")
+    mae_path = os.path.join(fig_dir, "mae_vs_disagreement.png")
+    if os.path.exists(rmse_path):
+        ec1.image(rmse_path, caption="RMSE vs. ensemble disagreement")
+    if os.path.exists(mae_path):
+        ec2.image(mae_path, caption="MAE vs. ensemble disagreement")
 
     st.markdown("#### How attention works in HABIT")
     st.markdown("""
@@ -992,32 +1018,19 @@ concentrated at the wet end where drainage is rapid, while fine-textured
 soils spread attention more evenly.
 """)
 
-    st.markdown("#### Ensemble spread")
+    st.markdown("#### Install on your machine")
     st.markdown("""
-The shaded band and σ values represent the spread among 20 independently
-trained models.  This is *not* a calibrated uncertainty interval.  However,
-independent validation on 66,869 KSSL samples showed that ensemble spread
-is monotonically associated with prediction error and can serve as an
-indicator of prediction reliability — and of input data quality.
+For batch processing, scripting, or integration into your own workflows,
+install the Python package.  It downloads the same 20-member ensemble
+used by this web app.
 """)
+    st.code("pip install habit-ptf", language="bash")
+    st.code("""from habit_ptf import load_ensemble
 
-    st.markdown("#### Performance")
-    st.markdown("Independent test set, 95% CI from cluster bootstrap "
-                "(1,000 iterations):")
-
-    perf_df = pd.DataFrame({
-        "Inputs":         ["Texture only", "+ Bulk density",
-                           "+ Organic carbon", "+ Ksat"],
-        "R²":        ["0.779 [0.737, 0.817]", "0.846 [0.748, 0.906]",
-                           "0.862 [0.781, 0.920]", "0.923 [0.899, 0.944]"],
-        "RMSE (cm³/cm³)": [
-            "0.067 [0.060, 0.074]", "0.056 [0.044, 0.070]",
-            "0.052 [0.040, 0.066]", "0.043 [0.036, 0.050]"],
-        "MAE (cm³/cm³)": [
-            "0.049 [0.044, 0.055]", "0.039 [0.033, 0.049]",
-            "0.038 [0.030, 0.047]", "0.030 [0.026, 0.035]"],
-    })
-    st.dataframe(perf_df, use_container_width=True, hide_index=True)
+predictor = load_ensemble()
+result = predictor.predict(soil_dataframe)""", language="python")
+    st.markdown(
+        '[Model weights on HuggingFace](https://huggingface.co/Teamrat/habit)')
 
     st.markdown("#### License")
     st.markdown("MIT (code and weights). Training data: CC BY 4.0.")
