@@ -28,7 +28,7 @@ st.set_page_config(
 st.markdown("""
 <style>
 /* Layout */
-.block-container { padding-top: 0.5rem; max-width: 1400px; }
+.block-container { padding-top: 2.5rem; max-width: 1400px; }
 
 /* Hide hamburger menu */
 #MainMenu { visibility: hidden; }
