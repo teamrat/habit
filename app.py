@@ -212,6 +212,47 @@ def run_ensemble(sessions, feed):
     return np.array([s.run(None, feed)[0][0] for s in sessions])
 
 
+def run_ensemble_with_attention(sessions, feed):
+    """Run ensemble and collect predictions + all attention weights."""
+    preds = []
+    prop_attn_all = []
+    cross_bd_all = []
+    cross_oc_all = []
+    wp_attn_all = []
+
+    output_names = [
+        "water_content",
+        "property_attention_weights",
+        "cross_attention_texture_bd",
+        "cross_attention_texture_oc",
+        "wp_attention_weights",
+    ]
+
+    for s in sessions:
+        # Check if this model has attention outputs
+        model_outputs = [o.name for o in s.get_outputs()]
+        if "property_attention_weights" in model_outputs:
+            outs = s.run(output_names, feed)
+            preds.append(outs[0][0])
+            prop_attn_all.append(outs[1][0])     # (num_heads, 4, 4)
+            cross_bd_all.append(outs[2][0])       # (num_heads, 2, 2)
+            cross_oc_all.append(outs[3][0])       # (num_heads, 2, 2)
+            wp_attn_all.append(outs[4][0])        # (num_heads, 1, num_wp)
+        else:
+            # Fallback for old models without attention outputs
+            preds.append(s.run(None, feed)[0][0])
+
+    result = {"preds": np.array(preds)}
+
+    if prop_attn_all:
+        result["property_attention"] = np.array(prop_attn_all)
+        result["cross_attention_bd"] = np.array(cross_bd_all)
+        result["cross_attention_oc"] = np.array(cross_oc_all)
+        result["wp_attention"] = np.array(wp_attn_all)
+
+    return result
+
+
 def prepare_batch_inputs(df, cols_lower, wp_kpa):
     """Vectorized input preparation for a batch of soils."""
     n = len(df)
@@ -462,9 +503,10 @@ with tab1:
             stage_label = get_stage_label(mask)
 
             with st.spinner(f"Running {NUM_MEMBERS}-member ensemble…"):
-                all_preds = run_ensemble(ENSEMBLE, feed)
+                ens_result = run_ensemble_with_attention(ENSEMBLE, feed)
+                all_preds = ens_result["preds"]
 
-            st.session_state.results = {
+            res_dict = {
                 "wp_kpa": wp_kpa,
                 "all_preds": all_preds,
                 "mean": np.mean(all_preds, axis=0),
@@ -474,7 +516,17 @@ with tab1:
                 "stage_label": stage_label,
                 "wp_min": float(wp_min),
                 "wp_max": float(wp_max),
+                "mask": mask,
             }
+
+            # Attach attention weights if available
+            if "property_attention" in ens_result:
+                res_dict["property_attention"] = ens_result["property_attention"]
+                res_dict["cross_attention_bd"] = ens_result["cross_attention_bd"]
+                res_dict["cross_attention_oc"] = ens_result["cross_attention_oc"]
+                res_dict["wp_attention"] = ens_result["wp_attention"]
+
+            st.session_state.results = res_dict
 
     # ── Right panel: results ──────────────────────────────────────────────
 
@@ -530,6 +582,128 @@ with tab1:
                 'test data.'
                 '</div>',
                 unsafe_allow_html=True)
+
+            # ── Property attention bar chart ────────────────────────────
+            if "property_attention" in res:
+                # property_attention: (20, num_heads, 4, 4)
+                # Average over heads, take column means (contribution of
+                # each property to the combined representation)
+                prop_attn = res["property_attention"]  # (20, H, 4, 4)
+                head_avg = np.mean(prop_attn, axis=1)  # (20, 4, 4)
+                # Column mean = how much each property contributes
+                col_means = np.mean(head_avg, axis=1)  # (20, 4)
+                attn_mean = np.mean(col_means, axis=0)  # (4,)
+                attn_std = np.std(col_means, axis=0)     # (4,)
+
+                prop_names = ["Texture", "Bulk density", "Organic C", "Ksat"]
+                active_mask = res["mask"][0]
+
+                fig_attn, ax_attn = plt.subplots(figsize=(8, 1.8))
+                fig_attn.patch.set_facecolor("white")
+                ax_attn.set_facecolor("white")
+
+                colors = ["#3b82f6" if active_mask[i] else "#e2e8f0"
+                          for i in range(4)]
+                bars = ax_attn.barh(prop_names, attn_mean, xerr=attn_std,
+                                    color=colors, edgecolor="white",
+                                    height=0.6, capsize=3,
+                                    error_kw={"linewidth": 0.8,
+                                              "color": "#94a3b8"})
+                ax_attn.set_xlabel("Attention weight", fontsize=9)
+                ax_attn.set_xlim(0)
+                ax_attn.tick_params(labelsize=9)
+                for sp in ax_attn.spines.values():
+                    sp.set_visible(False)
+                ax_attn.grid(axis="x", alpha=0.15, linewidth=0.5)
+                ax_attn.invert_yaxis()
+                fig_attn.tight_layout()
+
+                st.markdown('<p class="section-label">Property attention '
+                            '(ensemble mean ± σ)</p>',
+                            unsafe_allow_html=True)
+                st.pyplot(fig_attn)
+                plt.close(fig_attn)
+
+                # ── Advanced attention (hidden by default) ───────────
+                with st.expander("Cross-attention & water potential attention"):
+                    ca_col1, ca_col2 = st.columns(2)
+
+                    # Cross-attention texture ↔ BD
+                    cross_bd = res["cross_attention_bd"]  # (20, H, 2, 2)
+                    cross_bd_avg = np.mean(
+                        np.mean(cross_bd, axis=1), axis=0)  # (2, 2)
+
+                    fig_cbd, ax_cbd = plt.subplots(figsize=(3, 2.5))
+                    im1 = ax_cbd.imshow(cross_bd_avg, cmap="Blues",
+                                         vmin=0, vmax=1)
+                    ax_cbd.set_xticks([0, 1])
+                    ax_cbd.set_yticks([0, 1])
+                    ax_cbd.set_xticklabels(["Texture", "BD"], fontsize=8)
+                    ax_cbd.set_yticklabels(["Texture", "BD"], fontsize=8)
+                    ax_cbd.set_title("Texture ↔ BD", fontsize=9)
+                    for i in range(2):
+                        for j in range(2):
+                            ax_cbd.text(j, i, f"{cross_bd_avg[i, j]:.2f}",
+                                        ha="center", va="center",
+                                        fontsize=9, fontweight="bold",
+                                        color="white" if cross_bd_avg[i, j] > 0.5
+                                        else "#1e293b")
+                    fig_cbd.tight_layout()
+                    ca_col1.pyplot(fig_cbd)
+                    plt.close(fig_cbd)
+
+                    # Cross-attention texture ↔ OC
+                    cross_oc = res["cross_attention_oc"]  # (20, H, 2, 2)
+                    cross_oc_avg = np.mean(
+                        np.mean(cross_oc, axis=1), axis=0)  # (2, 2)
+
+                    fig_coc, ax_coc = plt.subplots(figsize=(3, 2.5))
+                    im2 = ax_coc.imshow(cross_oc_avg, cmap="Oranges",
+                                         vmin=0, vmax=1)
+                    ax_coc.set_xticks([0, 1])
+                    ax_coc.set_yticks([0, 1])
+                    ax_coc.set_xticklabels(["Texture", "OC"], fontsize=8)
+                    ax_coc.set_yticklabels(["Texture", "OC"], fontsize=8)
+                    ax_coc.set_title("Texture ↔ OC", fontsize=9)
+                    for i in range(2):
+                        for j in range(2):
+                            ax_coc.text(j, i, f"{cross_oc_avg[i, j]:.2f}",
+                                        ha="center", va="center",
+                                        fontsize=9, fontweight="bold",
+                                        color="white" if cross_oc_avg[i, j] > 0.5
+                                        else "#1e293b")
+                    fig_coc.tight_layout()
+                    ca_col2.pyplot(fig_coc)
+                    plt.close(fig_coc)
+
+                    # WP attention
+                    wp_attn = res["wp_attention"]  # (20, H, 1, num_wp)
+                    wp_avg = np.mean(
+                        np.mean(wp_attn, axis=1), axis=0)  # (1, num_wp)
+                    wp_weights = wp_avg[0]  # (num_wp,)
+
+                    fig_wp, ax_wp = plt.subplots(figsize=(8, 2))
+                    fig_wp.patch.set_facecolor("white")
+                    ax_wp.set_facecolor("white")
+                    ax_wp.fill_between(wp_kpa, 0, wp_weights,
+                                        alpha=0.3, color="#3b82f6")
+                    ax_wp.plot(wp_kpa, wp_weights, color="#1d4ed8",
+                               linewidth=1.2)
+                    ax_wp.set_xscale("log")
+                    ax_wp.set_xlabel("Water potential |ψ| (kPa)",
+                                     fontsize=9)
+                    ax_wp.set_ylabel("Attention weight", fontsize=9)
+                    ax_wp.set_title(
+                        "Water potential attention (ensemble mean)",
+                        fontsize=9)
+                    ax_wp.tick_params(labelsize=8)
+                    for sp in ["top", "right"]:
+                        ax_wp.spines[sp].set_visible(False)
+                    for sp in ["bottom", "left"]:
+                        ax_wp.spines[sp].set_color("#cbd5e1")
+                    fig_wp.tight_layout()
+                    st.pyplot(fig_wp)
+                    plt.close(fig_wp)
 
             # Table at standard water potentials
             r_min = res["wp_min"]
