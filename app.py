@@ -28,18 +28,24 @@ st.set_page_config(
 st.markdown("""
 <style>
 /* Global */
-.block-container { padding-top: 1rem; max-width: 1400px; }
+.block-container { padding-top: 0.5rem; max-width: 1400px; }
 
-/* Header */
+/* Hide Streamlit default header chrome */
+header[data-testid="stHeader"] { background: transparent !important; }
+
+/* Header bar */
+.app-header {
+    display: flex; align-items: baseline; gap: 0.7rem;
+    margin: 0.3rem 0 0.6rem 0; padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e2e8f0;
+}
 .app-title {
-    font-size: 1.5rem; font-weight: 700; color: #1e293b;
-    margin: 0 0 0.1rem 0;
+    font-size: 1.6rem; font-weight: 800; color: #1e293b;
+    margin: 0; letter-spacing: -0.02em;
 }
-.app-tagline {
-    font-size: 0.85rem; color: #64748b; margin-bottom: 0.6rem; line-height: 1.5;
+.app-subtitle {
+    font-size: 0.85rem; color: #64748b; margin: 0;
 }
-.app-tagline a { color: #3b82f6; text-decoration: none; }
-.app-tagline a:hover { text-decoration: underline; }
 
 /* Section labels */
 .section-label {
@@ -87,9 +93,21 @@ st.markdown("""
 .stNumberInput > div > div > input { text-align: center; }
 .stDownloadButton > button { width: 100%; }
 
-/* Tabs */
-.stTabs [data-baseweb="tab-list"] { gap: 2px; }
-.stTabs [data-baseweb="tab"] { padding: 8px 20px; }
+/* Navigation tabs */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0; background: #f1f5f9; border-radius: 8px;
+    padding: 3px; margin-bottom: 0.5rem;
+}
+.stTabs [data-baseweb="tab"] {
+    padding: 9px 28px; font-weight: 600; font-size: 0.9rem;
+    border-radius: 6px; color: #64748b;
+}
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    background: white !important; color: #1e293b !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.stTabs [data-baseweb="tab-highlight"] { display: none; }
+.stTabs [data-baseweb="tab-border"] { display: none; }
 
 /* Footer */
 .app-footer {
@@ -363,15 +381,10 @@ def make_plot(wp_kpa, all_preds, mean, lower, upper, stage_label):
 # ── Header ────────────────────────────────────────────────────────────────
 
 st.markdown("""
-<p class="app-title">\U0001f4a7 HABIT</p>
-<p class="app-tagline">
-    Predict soil water retention curves from basic soil properties using a
-    20-member deep learning ensemble.
-    Provide whatever properties you have — the model adapts automatically.
-    &nbsp;
-    <a href="https://huggingface.co/Teamrat/habit">Weights</a>
-    &nbsp;·&nbsp; <code style="font-size:0.82rem">pip install habit-ptf</code>
-</p>
+<div class="app-header">
+    <p class="app-title">\U0001f4a7 HABIT</p>
+    <p class="app-subtitle">Soil water retention prediction</p>
+</div>
 """, unsafe_allow_html=True)
 
 ENSEMBLE = load_ensemble()
@@ -806,8 +819,14 @@ Rows in the same CSV can have different stages.
         help="Enter one or more values. Example: '33' for field capacity only.",
     )
 
-    # ── File upload + predict ─────────────────────────────────────────────
+    # ── File upload + options ────────────────────────────────────────────
     csv_file = st.file_uploader("Upload CSV", type=["csv"])
+    include_attn = st.checkbox(
+        "Include property attention weights in download",
+        value=False,
+        help="Adds 4 columns (attn_texture, attn_bd, attn_oc, attn_ksat) "
+             "showing how much the model relied on each property. "
+             "Increases processing time.")
     batch_btn = st.button("Predict All", type="primary", key="batch")
 
     if batch_btn and csv_file is not None:
@@ -843,6 +862,12 @@ Rows in the same CSV can have different stages.
         CHUNK = 500
         n_chunks = (n_soils + CHUNK - 1) // CHUNK
         all_mean, all_std, all_q025, all_q975 = [], [], [], []
+        all_attn = [] if include_attn else None
+
+        # Check if models support attention outputs
+        attn_available = include_attn and (
+            "property_attention_weights" in
+            [o.name for o in ENSEMBLE[0].get_outputs()])
 
         progress = st.progress(0, text=f"Processing {n_soils:,} soils "
                                f"at {n_wp} water potential(s)…")
@@ -861,6 +886,18 @@ Rows in the same CSV can have different stages.
             all_std.append(np.std(preds, axis=0))
             all_q025.append(np.percentile(preds, 2.5, axis=0))
             all_q975.append(np.percentile(preds, 97.5, axis=0))
+
+            if attn_available:
+                # Collect property attention per ensemble member
+                prop_attn = np.array([
+                    sess.run(["property_attention_weights"],
+                             chunk_feed)[0]
+                    for sess in ENSEMBLE
+                ])  # (20, chunk, H, 4, 4)
+                # Average over ensemble, heads, then column mean
+                avg = np.mean(np.mean(prop_attn, axis=0), axis=1)  # (chunk, 4, 4)
+                col_means = np.mean(avg, axis=1)  # (chunk, 4)
+                all_attn.append(col_means)
 
             progress.progress(
                 (ci_idx + 1) / n_chunks,
@@ -914,6 +951,12 @@ Rows in the same CSV can have different stages.
         out["theta_q025"] = q025_all.ravel()
         out["theta_q975"] = q975_all.ravel()
 
+        if attn_available and all_attn:
+            attn_all = np.concatenate(all_attn, axis=0)  # (n_soils, 4)
+            prop_labels = ["attn_texture", "attn_bd", "attn_oc", "attn_ksat"]
+            for j, lbl in enumerate(prop_labels):
+                out[lbl] = np.repeat(attn_all[:, j], n_wp)
+
         result_df = pd.DataFrame(out)
 
         # Summary
@@ -951,11 +994,60 @@ with tab3:
     st.markdown("""
 HABIT (**H**ierarchical **A**ttention-**B**ased **I**nference with **T**ransfer
 learning) is a deep learning model for predicting soil water retention curves
-from basic soil properties. It uses a transformer-based architecture with
+from basic soil properties.  It uses a transformer-based architecture with
 property-specific encoders, cross-attention layers that learn interactions
 between properties, a monotonic output layer enforcing physically correct
 behavior, and hierarchical training so one model handles any combination
 of inputs.
+
+Provide whatever properties you have — the model adapts automatically.
+""")
+
+    ab_col1, ab_col2 = st.columns(2)
+    ab_col1.markdown(
+        '[Model weights (HuggingFace)](https://huggingface.co/Teamrat/habit)'
+        '&ensp;·&ensp;`pip install habit-ptf`')
+    ab_col2.code("""from habit_ptf import load_ensemble
+predictor = load_ensemble()
+result = predictor.predict(soil_dataframe)""", language="python")
+
+    st.markdown("#### How attention works in HABIT")
+    st.markdown("""
+The single-soil prediction panel shows three types of attention weights
+extracted from the model.  Together they reveal *why* the model made a
+particular prediction, not just *what* it predicted.
+
+**Property attention** (shown by default) is a 4×4 self-attention matrix
+over the four property embeddings (texture, bulk density, organic carbon,
+Ksat).  We display the column-wise mean: the average attention each property
+*receives* from all other properties.  Higher weight means the model relies
+more on that property for the current soil.  Properties you did not provide
+are masked and shown in gray — the model learns to ignore them.  Error bars
+show the spread across the 20 ensemble members.
+
+**Cross-attention** (inside the expander) captures pairwise interactions
+between specific property pairs.  HABIT has two cross-attention modules:
+texture↔bulk density (4 heads) and texture↔organic carbon (2 heads).
+The heatmaps show how much each property in a pair attends to the other
+after averaging over heads and ensemble members.  Strong off-diagonal
+values indicate that the model found an informative interaction between
+those properties for this particular soil.
+
+**Water potential attention** (inside the expander) shows how the soil
+embedding attends to different points along the water potential axis.
+This reveals which part of the retention curve is most influenced by the
+soil's properties — for example, coarse soils often show attention
+concentrated at the wet end where drainage is rapid, while fine-textured
+soils spread attention more evenly.
+""")
+
+    st.markdown("#### Ensemble spread")
+    st.markdown("""
+The shaded band and σ values represent the spread among 20 independently
+trained models.  This is *not* a calibrated uncertainty interval.  However,
+independent validation on 66,869 KSSL samples showed that ensemble spread
+is monotonically associated with prediction error and can serve as an
+indicator of prediction reliability — and of input data quality.
 """)
 
     st.markdown("#### Performance")
@@ -975,22 +1067,6 @@ of inputs.
             "0.038 [0.030, 0.047]", "0.030 [0.026, 0.035]"],
     })
     st.dataframe(perf_df, use_container_width=True, hide_index=True)
-
-    st.markdown("#### Ensemble spread")
-    st.markdown("""
-The shaded band and σ values in the predictions represent the spread among
-20 independently trained models. This is *not* a calibrated uncertainty
-interval. However, in the independent HABIT test set, ensemble spread was
-empirically associated with prediction error and can be used as an indicator
-of prediction reliability.
-""")
-
-    st.markdown("#### Python package")
-    st.code("pip install habit-ptf", language="bash")
-    st.code("""from habit_ptf import load_ensemble
-
-predictor = load_ensemble()
-result = predictor.predict(soil_dataframe)""", language="python")
 
     st.markdown("#### License")
     st.markdown("MIT (code and weights). Training data: CC BY 4.0.")
