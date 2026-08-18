@@ -1,16 +1,28 @@
 [theme]
 base = "light"
-font = "Poppins:https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400&display=swap, sans-serif"
-primaryColor = "#1d4ed8"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f1f5f9"
-textColor = "#1e293b"
-borderColor = "#e2e8f0"
-baseRadius = "0.5rem"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, sans-serif"
+headingFont = "Fraunces:https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&display=swap, serif"
+primaryColor = "#A24A28"
+backgroundColor = "#F1ECE3"
+secondaryBackgroundColor = "#E7E0D2"
+textColor = "#2A2621"
+borderColor = "#DDD5C6"
+baseRadius = "0.75rem"
 showWidgetBorder = true
 
-[theme.sidebar]
-backgroundColor = "#f1f5f9"
+[theme.light]
+primaryColor = "#A24A28"
+backgroundColor = "#F1ECE3"
+secondaryBackgroundColor = "#E7E0D2"
+textColor = "#2A2621"
+borderColor = "#DDD5C6"
+
+[theme.dark]
+primaryColor = "#E39468"
+backgroundColor = "#1B1815"
+secondaryBackgroundColor = "#201C18"
+textColor = "#ECE5D9"
+borderColor = "#38322A"
 
 [server]
 maxUploadSize = 10

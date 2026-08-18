@@ -10,6 +10,7 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import streamlit as st
 import onnxruntime as ort
 from huggingface_hub import hf_hub_download
@@ -36,56 +37,59 @@ st.markdown("""
 /* Header */
 .app-header { margin: 0.3rem 0 1.5rem 0; }
 .app-title {
-    font-size: 40px !important; font-weight: 500; color: #1e293b;
-    margin: 0; letter-spacing: -0.01em;
+    font-family: 'Fraunces', serif;
+    font-size: 40px !important; font-weight: 600; color: #2A2621;
+    margin: 0; letter-spacing: -0.015em;
 }
-.app-title span { font-weight: 300; }
+.app-title span { font-weight: 400; }
 .app-subtitle {
-    font-size: 0.9rem; font-weight: 300; color: #94a3b8;
+    font-size: 0.9rem; font-weight: 400; color: #726657;
     margin: 0.15rem 0 0 0; letter-spacing: 0.02em;
 }
 
-/* Section labels */
+/* Eyebrow / section labels */
 .section-label {
-    font-size: 0.7rem; font-weight: 700; color: #94a3b8;
-    text-transform: uppercase; letter-spacing: 0.08em;
+    font-size: 0.7rem; font-weight: 600; color: #A24A28;
+    text-transform: uppercase; letter-spacing: 0.14em;
     margin: 0.9rem 0 0.15rem 0;
 }
 
 /* Texture sum */
-.tex-ok   { color: #16a34a; font-size: 0.82rem; font-weight: 600; }
-.tex-warn { color: #ea580c; font-size: 0.82rem; font-weight: 600; }
+.tex-ok   { color: #4B6B54; font-size: 0.82rem; font-weight: 600; }
+.tex-warn { color: #A24A28; font-size: 0.82rem; font-weight: 600; }
 
 /* Stage badge */
 .stage-badge {
     display: inline-block;
-    background: #eff6ff; color: #1d4ed8;
-    padding: 0.2rem 0.65rem; border-radius: 20px;
+    background: #F1ECE3; color: #A24A28;
+    padding: 0.2rem 0.65rem; border-radius: 999px;
     font-weight: 600; font-size: 0.8rem;
     margin-bottom: 0.4rem;
+    border: 1px solid #DDD5C6;
 }
 
 /* Metric row */
 .metric-row { display: flex; gap: 0.6rem; margin-bottom: 0.6rem; }
 .metric-card {
-    flex: 1; background: #f1f5f9; border: 1px solid #e2e8f0;
-    border-radius: 8px; padding: 0.45rem 0.6rem; text-align: center;
+    flex: 1; background: #FBF8F2; border: 1px solid #DDD5C6;
+    border-radius: 12px; padding: 0.45rem 0.6rem; text-align: center;
 }
-.metric-card .val { font-size: 1rem; font-weight: 700; color: #1e293b; }
-.metric-card .lbl { font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; }
+.metric-card .val { font-size: 1rem; font-weight: 700; color: #2A2621; }
+.metric-card .lbl { font-size: 0.68rem; color: #726657; text-transform: uppercase;
+                     letter-spacing: 0.06em; }
 
 /* Ensemble note */
 .ens-note {
-    background: #f1f5f9; border-left: 3px solid #1d4ed8;
+    background: #FBF8F2; border-left: 3px solid #A24A28;
     border-radius: 0 6px 6px 0;
     padding: 0.55rem 0.85rem; margin: 0.4rem 0 0.6rem 0;
-    font-size: 0.78rem; color: #475569; line-height: 1.4;
+    font-size: 0.78rem; color: #63594F; line-height: 1.65;
 }
 
 /* Empty state */
-.empty-state { text-align: center; padding: 6rem 2rem; color: #cbd5e1; }
+.empty-state { text-align: center; padding: 6rem 2rem; color: #C8BCA8; }
 .empty-state .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
-.empty-state p { font-size: 0.9rem; color: #94a3b8; }
+.empty-state p { font-size: 0.9rem; color: #726657; }
 
 /* Inputs */
 .stNumberInput > div > div > input { text-align: center; }
@@ -93,11 +97,13 @@ st.markdown("""
 
 /* Footer */
 .app-footer {
-    margin-top: 2rem; padding-top: 0.8rem;
-    border-top: 1px solid #e2e8f0;
-    font-size: 0.78rem; color: #94a3b8; line-height: 1.5;
+    margin-top: 3rem; padding: 1.2rem 1.5rem;
+    background: #2A2621; border-radius: 12px;
+    font-size: 0.78rem; color: #B4A99A; line-height: 1.65;
 }
-.app-footer a { color: #1d4ed8; text-decoration: none; }
+.app-footer a { color: #E39468; text-decoration: none; }
+.app-footer a:hover { text-decoration: underline; }
+.app-footer .copy { margin-top: 0.5rem; font-size: 0.72rem; color: #7A7060; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -105,6 +111,17 @@ st.markdown("""
 
 HF_REPO_ID = "Teamrat/habit"
 NUM_MEMBERS = 20
+
+# Design-language palette for plots
+PLOT_BG = "#F1ECE3"
+PLOT_SURFACE = "#FBF8F2"
+PLOT_INK = "#2A2621"
+PLOT_INK_MUTED = "#63594F"
+PLOT_INK_FAINT = "#726657"
+PLOT_BORDER = "#DDD5C6"
+PLOT_ACCENT = "#A24A28"
+PLOT_ACCENT_LIGHT = "#D4835E"
+PLOT_ACCENT2 = "#4B6B54"
 
 SCALER_PARAMS = {
     "texture": {"center": [0.2712, 0.413, 0.172], "scale": [0.456, 0.4543, 0.183]},
@@ -323,32 +340,35 @@ def prepare_batch_inputs(df, cols_lower, wp_kpa):
 
 def make_plot(wp_kpa, all_preds, mean, lower, upper, stage_label):
     fig, ax = plt.subplots(figsize=(8, 4.8))
-    fig.patch.set_facecolor("white")
-    ax.set_facecolor("white")
+    fig.patch.set_facecolor(PLOT_BG)
+    ax.set_facecolor(PLOT_BG)
 
     for m in range(len(all_preds)):
-        ax.plot(wp_kpa, all_preds[m], color="#93c5fd", linewidth=0.3, alpha=0.5)
+        ax.plot(wp_kpa, all_preds[m], color=PLOT_ACCENT_LIGHT,
+                linewidth=0.3, alpha=0.4)
 
-    ax.fill_between(wp_kpa, lower, upper, alpha=0.15, color="#3b82f6",
+    ax.fill_between(wp_kpa, lower, upper, alpha=0.15, color=PLOT_ACCENT,
                     label="2.5–97.5 percentile (20 members)")
-    ax.plot(wp_kpa, mean, color="#1d4ed8", linewidth=2.2,
+    ax.plot(wp_kpa, mean, color=PLOT_ACCENT, linewidth=2.2,
             label="Ensemble mean", zorder=5)
 
     ax.set_xscale("log")
-    ax.set_xlabel("Water potential |ψ| (kPa)", fontsize=11)
-    ax.set_ylabel("Volumetric water content θ (cm³/cm³)", fontsize=11)
+    ax.set_xlabel("Water potential |ψ| (kPa)", fontsize=11,
+                  color=PLOT_INK)
+    ax.set_ylabel("Volumetric water content θ (cm³/cm³)", fontsize=11,
+                  color=PLOT_INK)
     ax.set_title(stage_label, fontsize=11, fontweight="600",
-                 color="#334155", pad=8)
+                 color=PLOT_INK_MUTED, pad=8)
     ax.legend(loc="upper right", fontsize=8, framealpha=0.9,
-              edgecolor="#e2e8f0")
+              edgecolor=PLOT_BORDER, facecolor=PLOT_SURFACE)
     ax.set_ylim(bottom=0)
     ax.set_xlim(left=wp_kpa[0] * 0.9, right=wp_kpa[-1] * 1.1)
-    ax.grid(True, alpha=0.15, linewidth=0.5)
-    ax.tick_params(labelsize=9.5)
+    ax.grid(True, alpha=0.15, linewidth=0.5, color=PLOT_BORDER)
+    ax.tick_params(labelsize=9.5, colors=PLOT_INK_MUTED)
     for sp in ["top", "right"]:
         ax.spines[sp].set_visible(False)
     for sp in ["bottom", "left"]:
-        ax.spines[sp].set_color("#cbd5e1")
+        ax.spines[sp].set_color(PLOT_BORDER)
     fig.tight_layout()
     return fig
 
@@ -567,22 +587,24 @@ with tab1:
                 active_mask = res["mask"][0]
 
                 fig_attn, ax_attn = plt.subplots(figsize=(8, 1.8))
-                fig_attn.patch.set_facecolor("white")
-                ax_attn.set_facecolor("white")
+                fig_attn.patch.set_facecolor(PLOT_BG)
+                ax_attn.set_facecolor(PLOT_BG)
 
-                colors = ["#3b82f6" if active_mask[i] else "#e2e8f0"
+                colors = [PLOT_ACCENT if active_mask[i] else PLOT_BORDER
                           for i in range(4)]
                 bars = ax_attn.barh(prop_names, attn_mean, xerr=attn_std,
-                                    color=colors, edgecolor="white",
+                                    color=colors, edgecolor=PLOT_BG,
                                     height=0.6, capsize=3,
                                     error_kw={"linewidth": 0.8,
-                                              "color": "#94a3b8"})
-                ax_attn.set_xlabel("Attention weight", fontsize=9)
+                                              "color": PLOT_INK_FAINT})
+                ax_attn.set_xlabel("Attention weight", fontsize=9,
+                                   color=PLOT_INK_MUTED)
                 ax_attn.set_xlim(0)
-                ax_attn.tick_params(labelsize=9)
+                ax_attn.tick_params(labelsize=9, colors=PLOT_INK_MUTED)
                 for sp in ax_attn.spines.values():
                     sp.set_visible(False)
-                ax_attn.grid(axis="x", alpha=0.15, linewidth=0.5)
+                ax_attn.grid(axis="x", alpha=0.15, linewidth=0.5,
+                             color=PLOT_BORDER)
                 ax_attn.invert_yaxis()
                 fig_attn.tight_layout()
 
@@ -602,20 +624,27 @@ with tab1:
                         np.mean(cross_bd, axis=1), axis=0)  # (2, 2)
 
                     fig_cbd, ax_cbd = plt.subplots(figsize=(3, 2.5))
-                    im1 = ax_cbd.imshow(cross_bd_avg, cmap="Blues",
+                    fig_cbd.patch.set_facecolor(PLOT_BG)
+                    ax_cbd.set_facecolor(PLOT_BG)
+                    _terra_cmap = LinearSegmentedColormap.from_list(
+                        "terra", [PLOT_BG, PLOT_ACCENT_LIGHT, PLOT_ACCENT])
+                    im1 = ax_cbd.imshow(cross_bd_avg, cmap=_terra_cmap,
                                          vmin=0, vmax=1)
                     ax_cbd.set_xticks([0, 1])
                     ax_cbd.set_yticks([0, 1])
-                    ax_cbd.set_xticklabels(["Texture", "BD"], fontsize=8)
-                    ax_cbd.set_yticklabels(["Texture", "BD"], fontsize=8)
-                    ax_cbd.set_title("Texture ↔ BD", fontsize=9)
+                    ax_cbd.set_xticklabels(["Texture", "BD"], fontsize=8,
+                                            color=PLOT_INK_MUTED)
+                    ax_cbd.set_yticklabels(["Texture", "BD"], fontsize=8,
+                                            color=PLOT_INK_MUTED)
+                    ax_cbd.set_title("Texture ↔ BD", fontsize=9,
+                                     color=PLOT_INK)
                     for i in range(2):
                         for j in range(2):
                             ax_cbd.text(j, i, f"{cross_bd_avg[i, j]:.2f}",
                                         ha="center", va="center",
                                         fontsize=9, fontweight="bold",
                                         color="white" if cross_bd_avg[i, j] > 0.5
-                                        else "#1e293b")
+                                        else PLOT_INK)
                     fig_cbd.tight_layout()
                     ca_col1.pyplot(fig_cbd)
                     plt.close(fig_cbd)
@@ -626,20 +655,27 @@ with tab1:
                         np.mean(cross_oc, axis=1), axis=0)  # (2, 2)
 
                     fig_coc, ax_coc = plt.subplots(figsize=(3, 2.5))
-                    im2 = ax_coc.imshow(cross_oc_avg, cmap="Oranges",
+                    fig_coc.patch.set_facecolor(PLOT_BG)
+                    ax_coc.set_facecolor(PLOT_BG)
+                    _moss_cmap = LinearSegmentedColormap.from_list(
+                        "moss", [PLOT_BG, PLOT_ACCENT2, "#2D4032"])
+                    im2 = ax_coc.imshow(cross_oc_avg, cmap=_moss_cmap,
                                          vmin=0, vmax=1)
                     ax_coc.set_xticks([0, 1])
                     ax_coc.set_yticks([0, 1])
-                    ax_coc.set_xticklabels(["Texture", "OC"], fontsize=8)
-                    ax_coc.set_yticklabels(["Texture", "OC"], fontsize=8)
-                    ax_coc.set_title("Texture ↔ OC", fontsize=9)
+                    ax_coc.set_xticklabels(["Texture", "OC"], fontsize=8,
+                                            color=PLOT_INK_MUTED)
+                    ax_coc.set_yticklabels(["Texture", "OC"], fontsize=8,
+                                            color=PLOT_INK_MUTED)
+                    ax_coc.set_title("Texture ↔ OC", fontsize=9,
+                                     color=PLOT_INK)
                     for i in range(2):
                         for j in range(2):
                             ax_coc.text(j, i, f"{cross_oc_avg[i, j]:.2f}",
                                         ha="center", va="center",
                                         fontsize=9, fontweight="bold",
                                         color="white" if cross_oc_avg[i, j] > 0.5
-                                        else "#1e293b")
+                                        else PLOT_INK)
                     fig_coc.tight_layout()
                     ca_col2.pyplot(fig_coc)
                     plt.close(fig_coc)
@@ -651,24 +687,25 @@ with tab1:
                     wp_weights = wp_avg[0]  # (num_wp,)
 
                     fig_wp, ax_wp = plt.subplots(figsize=(8, 2))
-                    fig_wp.patch.set_facecolor("white")
-                    ax_wp.set_facecolor("white")
+                    fig_wp.patch.set_facecolor(PLOT_BG)
+                    ax_wp.set_facecolor(PLOT_BG)
                     ax_wp.fill_between(wp_kpa, 0, wp_weights,
-                                        alpha=0.3, color="#3b82f6")
-                    ax_wp.plot(wp_kpa, wp_weights, color="#1d4ed8",
+                                        alpha=0.25, color=PLOT_ACCENT)
+                    ax_wp.plot(wp_kpa, wp_weights, color=PLOT_ACCENT,
                                linewidth=1.2)
                     ax_wp.set_xscale("log")
                     ax_wp.set_xlabel("Water potential |ψ| (kPa)",
-                                     fontsize=9)
-                    ax_wp.set_ylabel("Attention weight", fontsize=9)
+                                     fontsize=9, color=PLOT_INK_MUTED)
+                    ax_wp.set_ylabel("Attention weight", fontsize=9,
+                                     color=PLOT_INK_MUTED)
                     ax_wp.set_title(
                         "Water potential attention (ensemble mean)",
-                        fontsize=9)
-                    ax_wp.tick_params(labelsize=8)
+                        fontsize=9, color=PLOT_INK)
+                    ax_wp.tick_params(labelsize=8, colors=PLOT_INK_MUTED)
                     for sp in ["top", "right"]:
                         ax_wp.spines[sp].set_visible(False)
                     for sp in ["bottom", "left"]:
-                        ax_wp.spines[sp].set_color("#cbd5e1")
+                        ax_wp.spines[sp].set_color(PLOT_BORDER)
                     fig_wp.tight_layout()
                     st.pyplot(fig_wp)
                     plt.close(fig_wp)
@@ -954,6 +991,9 @@ property-specific encoders, cross-attention layers that learn interactions
 between properties, a monotonic output layer enforcing physically correct
 behavior, and hierarchical training so one model handles any combination
 of inputs.
+
+Developed at the
+[Soil Physics Lab](https://soilphysics.ucmerced.edu), UC Merced.
 """)
 
     st.markdown("#### Performance")
@@ -1044,10 +1084,16 @@ result = predictor.predict(soil_dataframe)""", language="python")
 
 st.markdown("""
 <div class="app-footer">
+    <a href="https://soilphysics.ucmerced.edu" style="color:#E39468;
+    text-decoration:none; font-weight:600;">Soil Physics Lab</a>
+    &nbsp;·&nbsp; UC Merced<br>
     Ghezzehei,&nbsp;T.A.&nbsp;(2026).
     Interpretable soil water retention prediction using hierarchical attention
     networks with uncertainty quantification.
     <i>Water Resources Research</i>, 62, e2025WR042833.
-    <a href="https://doi.org/10.1029/2025WR042833">doi:10.1029/2025WR042833</a>
+    <a href="https://doi.org/10.1029/2025WR042833"
+    style="color:#E39468;">doi:10.1029/2025WR042833</a><br>
+    <span style="opacity:0.5; font-size:0.8em;">
+    &copy; 2009&ndash;2026 Teamrat A. Ghezzehei</span>
 </div>
 """, unsafe_allow_html=True)
