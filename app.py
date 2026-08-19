@@ -951,8 +951,8 @@ Rows in the same CSV can have different stages.
     # ── Water potential input ─────────────────────────────────────────────
     wp_text = st.text_input(
         "Water potentials (kPa, comma-separated)",
-        value="0.01, 0.03, 0.06, 0.1, 0.3, 0.6, 1, 3, 6, 10, 33, 100, 300, "
-              "500, 1000, 1500, 5000, 10000, 15000",
+        value="0.01, 0.1, 0.5, 1, 2, 3, 4, 6, 8, 10, 15, 20, 33, 50, 70, "
+              "100, 300, 1500, 15000",
         help="Comma-separated. HABIT predicts curves, not points — keep the "
              "range wide rather than asking for a single potential.",
     )
