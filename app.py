@@ -1176,7 +1176,7 @@ install the Python package.  It downloads the same 20-member ensemble
 used by this web app.
 """)
     st.code("pip install habit-ptf", language="bash")
-    st.code("""from habit_inference import load_ensemble
+    st.code("""from habit_ptf import load_ensemble
 
 predictor = load_ensemble()          # downloads the ONNX ensemble on first use
 result = predictor.predict(soil_dataframe)   # texture & OC in %, BD g/cm3, Ksat cm/day""", language="python")

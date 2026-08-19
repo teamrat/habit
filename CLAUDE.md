@@ -138,9 +138,10 @@ Do not round the scaler constants; copy them verbatim from
 `HABIT-training/data/processed/scaler_params.json`. The 4-decimal values
 previously in the app shifted scaled inputs by up to 1.2e-4.
 
-**Known divergence, not fixed:** `HABIT-distribution/habit-inference/`
-(`inference.py::_preprocess_soil_data`) applies no log transform to OC and
-divides by 100 — it disagrees with both training and this app.
+The `habit-ptf` package (`HABIT-distribution/habit-ptf/`) had the same class
+of OC bug and was fixed on 2026-08-19; it now uses the identical transforms
+and its own `verify_preprocessing.py`. Keep the two in sync — if you change a
+transform here, change it there.
 
 ## Key gotchas
 
