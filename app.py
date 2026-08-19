@@ -849,18 +849,30 @@ with tab1:
                     st.pyplot(fig_wp)
                     plt.close(fig_wp)
 
-            # Table at standard water potentials
+            # Table at a selection of the computed points.
+            #
+            # The psi column reports the ACTUAL grid value, not the standard
+            # value used to select it. A log-spaced grid rarely lands on 1, 3,
+            # 33, 300 ... and labelling a row "300" while showing theta at
+            # 258 kPa was wrong by up to 14% in psi. Standard values are used
+            # only to choose which computed points to show.
             r_min = res["wp_min"]
             r_max = res["wp_max"]
             standard_kpa = [p for p in
                             [1, 3, 6, 10, 33, 100, 300, 500,
                              1000, 5000, 10000, 15000]
                             if r_min <= p <= r_max]
-            table_rows = []
+            seen_idx = []
             for kpa in standard_kpa:
-                idx = np.argmin(np.abs(wp_kpa - kpa))
+                idx = int(np.argmin(np.abs(wp_kpa - kpa)))
+                if idx not in seen_idx:          # a coarse grid can collide
+                    seen_idx.append(idx)
+            table_rows = []
+            for idx in seen_idx:
+                psi = wp_kpa[idx]
                 table_rows.append({
-                    "|ψ| (kPa)": int(kpa),
+                    "|ψ| (kPa)": (f"{psi:,.0f}" if psi >= 100
+                                  else f"{psi:.3g}"),
                     "θ mean": f"{mean[idx]:.4f}",
                     "σ": f"{std[idx]:.4f}",
                     "2.5%": f"{lower[idx]:.4f}",
