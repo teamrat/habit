@@ -83,6 +83,8 @@ st.markdown("""
 .metric-card .val { font-size: 1rem; font-weight: 700; color: #2A2621; }
 .metric-card .lbl { font-size: 0.68rem; color: #726657; text-transform: uppercase;
                      letter-spacing: 0.06em; }
+.metric-card .lbl-note { font-size: 0.6rem; color: #A24A28; text-transform: none;
+                     letter-spacing: 0; font-style: italic; }
 
 /* Ensemble note */
 .ens-note {
@@ -130,17 +132,16 @@ st.markdown("""
 HF_REPO_ID = "Teamrat/habit"
 NUM_MEMBERS = 20
 
-# Reference water potentials for the summary cards. These are always appended
-# to the user's requested range so the cards are read off exact predictions
-# rather than interpolated (or, worse, clamped) values. They are then dropped
-# from the plot, the table and the CSV unless the user's own range happens to
-# contain them.
+# Reference water potentials for the summary cards. These are NOT added to the
+# user's request — the model conditions on the whole set of water potentials it
+# is given, so padding the request would change theta everywhere. Each card is
+# interpolated from the user's own grid when it falls inside [min, max], and
+# left blank otherwise.
 #
 # 0.01 kPa is the wet-end limit of the training data: log10(psi) was clamped at
 # -2.0 during preprocessing, so no training point lies below it. Anything wetter
 # would be extrapolation.
 WP_SAT, WP_FC, WP_PWP = 0.01, 33.0, 1500.0
-REF_WP_KPA = np.array([WP_SAT, WP_FC, WP_PWP])
 WP_MIN_ALLOWED = WP_SAT
 
 # Design-language palette for plots
@@ -545,18 +546,16 @@ with tab1:
                 st.error(f"Texture fractions sum to {tex_pct:.1f}% "
                          "— must be close to 100%.")
         else:
-            # The user's own grid...
-            wp_user = np.logspace(
-                np.log10(max(float(wp_min), WP_MIN_ALLOWED)),
-                np.log10(float(wp_max)),
-                int(n_pts),
-            )
-            # ...plus the three reference points, so theta_sat / FC / PWP are
-            # read off exact predictions. union1d sorts and de-duplicates, so a
-            # reference point the user already asked for is not doubled.
-            wp_kpa = np.union1d(wp_user, REF_WP_KPA)
-            # Everything except reference-only points is shown to the user.
-            display_mask = np.isin(wp_kpa, wp_user)
+            lo = max(float(wp_min), WP_MIN_ALLOWED)
+            hi = float(wp_max)
+
+            # The model is sent EXACTLY the requested grid — nothing is added.
+            # The water-potential attention conditions the soil embedding on
+            # the whole set of psi values in the request, so adding points
+            # silently changes theta everywhere (measured: 0.02-0.04 cm3/cm3).
+            # theta_sat / FC / PWP are therefore interpolated from this grid,
+            # and left blank when they fall outside it.
+            wp_kpa = np.logspace(np.log10(lo), np.log10(hi), int(n_pts))
 
             feed, mask = prepare_inputs(
                 sand_in, silt_in, clay_in, bd_in, oc_in, ksat_in, wp_kpa)
@@ -568,7 +567,6 @@ with tab1:
 
             res_dict = {
                 "wp_kpa": wp_kpa,
-                "display_mask": display_mask,
                 "all_preds": all_preds,
                 "mean": np.mean(all_preds, axis=0),
                 "std": np.std(all_preds, axis=0),
@@ -594,20 +592,13 @@ with tab1:
     with right:
         res = st.session_state.get("results")
         if res is not None:
-            wp_full = res["wp_kpa"]
-            dmask = res.get("display_mask",
-                            np.ones(len(wp_full), dtype=bool))
-            all_preds_full = res["all_preds"]
-            mean_full = res["mean"]
+            # Everything stored is exactly the grid the user requested.
+            wp_kpa = wp_full = res["wp_kpa"]
+            all_preds = res["all_preds"]
+            mean = mean_full = res["mean"]
+            std = res["std"]
+            lower, upper = res["lower"], res["upper"]
             stage_label = res["stage_label"]
-
-            # What the user sees: their own grid, with the reference-only
-            # points removed again.
-            wp_kpa = wp_full[dmask]
-            all_preds = all_preds_full[:, dmask]
-            mean = mean_full[dmask]
-            std = res["std"][dmask]
-            lower, upper = res["lower"][dmask], res["upper"][dmask]
 
             # Stage badge
             st.markdown(
@@ -621,10 +612,24 @@ with tab1:
                 (WP_FC, f"FC ({WP_FC:g} kPa)"),
                 (WP_PWP, f"PWP ({WP_PWP:g} kPa)"),
             ]
+            # Interpolate each reference point from the user's own grid when
+            # it lies inside [min, max]; blank otherwise.
+            #
+            # Interpolate in log10(psi), not psi: the retention curve is smooth
+            # in log space and the grid is log-spaced, so linear-in-psi
+            # interpolation is ~5x less accurate (mean error 1e-3 vs 1.7e-4
+            # when holding out a grid point). np.interp needs an increasing x,
+            # so guard the degenerate min == max case.
+            r_lo, r_hi = res["wp_min"], res["wp_max"]
             cards = []
             for ref_kpa, lbl in ref_points:
-                hit = np.flatnonzero(wp_full == ref_kpa)
-                val = f"{mean_full[hit[0]]:.3f}" if hit.size else "—"
+                if r_lo <= ref_kpa <= r_hi:
+                    if wp_full.size > 1 and wp_full[-1] > wp_full[0]:
+                        val = f"{np.interp(np.log10(ref_kpa), np.log10(wp_full), mean_full):.3f}"
+                    else:
+                        val = f"{mean_full[0]:.3f}"
+                else:
+                    val = "—"
                 cards.append(
                     f'<div class="metric-card"><div class="val">{val}</div>'
                     f'<div class="lbl">{lbl}</div></div>')
@@ -763,9 +768,7 @@ with tab1:
                     wp_attn = res["wp_attention"]  # (20, H, 1, num_wp)
                     wp_avg = np.mean(
                         np.mean(wp_attn, axis=1), axis=0)  # (1, num_wp)
-                    # Weights run over the full axis; drop the reference-only
-                    # points so this lines up with wp_kpa.
-                    wp_weights = wp_avg[0][dmask]  # (num_display_wp,)
+                    wp_weights = wp_avg[0]  # (num_wp,)
 
                     fig_wp, ax_wp = plt.subplots(figsize=(8, 2))
                     fig_wp.patch.set_facecolor(PLOT_BG)
@@ -1118,6 +1121,38 @@ See [Ghezzehei (2026)](https://doi.org/10.1029/2025WR042833) in
             "0.038 [0.030, 0.047]", "0.030 [0.026, 0.035]"],
     })
     st.dataframe(perf_df, width="stretch", hide_index=True)
+
+    st.markdown("#### The curve is predicted jointly, not point by point")
+    st.markdown("""
+HABIT does not predict each water potential independently.  An attention layer
+summarises the **whole set of water potentials you request** and uses that
+summary to condition the soil representation, which in turn generates the
+parameters of the retention curve.  The curve is produced as a single object.
+
+This is deliberate, and it matches how the model was trained and tested: every
+sample was fitted and evaluated at its own measured water-potential points, so
+the model learned to read a requested set of potentials as part of the query.
+
+It has a consequence worth knowing.  **The predicted θ at a given |ψ| depends
+on the other potentials you asked for in the same request.**  Widening the
+range, or changing the number of points, shifts the whole curve slightly.  The
+effect is of order 0.02–0.04 cm³/cm³ — comparable to the model's own RMSE —
+and is largest for very sparse requests, such as asking for a single point.
+
+Practical guidance:
+
+- The app sends the model **exactly** the range and number of points you
+  specify.  Nothing is added behind the scenes.
+- To reproduce a number you quoted earlier, reproduce the **grid** as well as
+  the soil properties.  This applies equally to the `habit-ptf` Python package
+  and to batch predictions.
+- For a curve you intend to compare against others, prefer a consistent,
+  reasonably dense log-spaced grid over the range of interest.
+
+The θ<sub>sat</sub>, FC and PWP cards above the figure are interpolated from
+the curve you requested, and are shown only when 0.01, 33 and 1500 kPa fall
+inside your range.  Outside it they are left blank rather than extrapolated.
+""", unsafe_allow_html=True)
 
     st.markdown("#### Ensemble spread")
     st.markdown("""

@@ -143,6 +143,68 @@ of OC bug and was fixed on 2026-08-19; it now uses the identical transforms
 and its own `verify_preprocessing.py`. Keep the two in sync — if you change a
 transform here, change it there.
 
+## Predictions depend on the REQUESTED water-potential set
+
+`wp_attention` uses the soil embedding as a single query and the requested psi
+values as keys/values (habit.py 331-338). Its output — one summary vector of
+the whole requested set — is added to the soil embedding (line 345), and that
+combined vector is repeated across all points to generate the curve parameters
+(347-356). So the curve is produced jointly and the requested grid conditions
+it. This is intended: training and testing evaluated each sample at its own
+measured psi points.
+
+Measured, theta at 33 kPa, same soil, 5 members:
+
+| grid | loam | sand | clay |
+|---|---|---|---|
+| standard 12 pts 1-15000 | 0.3499 | 0.1300 | 0.4208 |
+| log 50 pts 0.1-15000 | 0.3309 | 0.1219 | 0.4215 |
+| log 20 pts 10-1500 | 0.3544 | 0.1412 | 0.4029 |
+| just [33] | 0.3178 | 0.1228 | 0.4013 |
+| spread | 0.041 | 0.019 | 0.021 |
+
+**Never add a psi point the user did not request.** The app sends exactly
+`np.logspace(min, max, n_pts)`. theta_sat / FC / PWP are interpolated from that
+grid when 0.01 / 33 / 1500 fall inside [min, max] inclusive, and shown as a
+dash otherwise — never extrapolated, never obtained by padding the request.
+
+An earlier version injected the three reference points so the cards could be
+exact. That turned a min=max=33 request into a 3-point one, moved theta by
+0.026, and made the app disagree with the habit-ptf package for the same soil.
+Do not reintroduce it.
+
+Repeated copies of one psi value are harmless (attention over N identical keys
+gives the same context vector as over one), which is why min == max with
+n_pts > 1 still matches a genuine single-point request.
+
+To compare the app with the package, pass the same grid — not just the same
+soil. That is the first thing to check if they ever disagree.
+
+## Property attention: the BD asymmetry
+
+At Stage 0 the property-attention bar chart shows a non-zero weight for bulk
+density even though none was supplied. This is correct model behaviour, not a
+display bug. In `habit/model/habit.py` (identical in HABIT-training and
+HABIT-WRR-dryad, md5 54a9a256...):
+
+- line 179 — `bd_features = self.bd_encoder(bd)` has NO mask gate, unlike
+  lines 186-187 where `oc_features` and `ksat_features` are multiplied by
+  their mask bit
+- line 289 — the attention mask is built as
+  `tf.concat([tf.ones_like(properties_mask[:, 0:2]), properties_mask[:, 2:4]])`,
+  so texture and BD are hard-coded as always available; only OC and Ksat are
+  actually masked out of the softmax
+- line 224 vs 253 — when the availability bit is 0, `bd_enhanced_by_texture`
+  falls back to `bd_features` (a non-zero learned vector), whereas
+  `oc_enhanced_by_texture` falls back to `oc_features_safe`, already zeroed
+
+So OC and Ksat are suppressed twice and read exactly 0.0000; BD is suppressed
+zero times. The BD bar is the model's learned encoding of "bulk density
+unknown", which is genuinely informative — flipping only the mask bit with the
+BD tensor held at 0.0 moves theta by ~0.017 cm3/cm3 and the BD attention from
+~0.34 to ~0.50 for a medium-textured soil. Do not "fix" this in the chart.
+The About tab explains it to users.
+
 ## Key gotchas
 
 1. **ONNX output ordering** — outputs are alphabetical, NOT in definition order. Always request by name: `sess.run(["water_content"], feed)`. Using `sess.run(None, feed)[0]` returns `cross_attention_texture_bd`, not water content.
