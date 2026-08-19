@@ -580,7 +580,7 @@ with tab1:
         st.markdown('<p class="section-label">Water potential range</p>',
                     unsafe_allow_html=True)
         wc1, wc2, wc3 = st.columns(3)
-        wp_min = wc1.number_input("Min (kPa)", value=0.1,
+        wp_min = wc1.number_input("Min (kPa)", value=WP_MIN_ALLOWED,
                                   format="%.2f", key="wp_min",
                                   min_value=WP_MIN_ALLOWED)
         wp_max = wc2.number_input("Max (kPa)", value=15000.0,
@@ -1177,36 +1177,18 @@ See [Ghezzehei (2026)](https://doi.org/10.1029/2025WR042833) in
     })
     st.dataframe(perf_df, width="stretch", hide_index=True)
 
-    st.markdown("#### The curve is predicted jointly, not point by point")
+    st.markdown("#### HABIT predicts curves, not points")
     st.markdown("""
-HABIT does not predict each water potential independently.  An attention layer
-summarises the **whole set of water potentials you request** and uses that
-summary to condition the soil representation, which in turn generates the
-parameters of the retention curve.  The curve is produced as a single object.
+HABIT is a curve predictor.  It was trained and evaluated on complete water
+retention curves, and should be asked for one.
 
-This is deliberate, and it matches how the model was trained and tested: every
-sample was fitted and evaluated at its own measured water-potential points, so
-the model learned to read a requested set of potentials as part of the query.
+- Use a wide, log-spaced range of water potentials.  The default spans
+  0.01 to 15000 kPa; keep it that wide unless you have a reason not to.
+- Avoid single-point predictions.
 
-It has a consequence worth knowing.  **The predicted θ at a given |ψ| depends
-on the other potentials you asked for in the same request.**  Widening the
-range, or changing the number of points, shifts the whole curve slightly.  The
-effect is of order 0.02–0.04 cm³/cm³ — comparable to the model's own RMSE —
-and is largest for very sparse requests, such as asking for a single point.
-
-Practical guidance:
-
-- The app sends the model **exactly** the range and number of points you
-  specify.  Nothing is added behind the scenes.
-- To reproduce a number you quoted earlier, reproduce the **grid** as well as
-  the soil properties.  This applies equally to the `habit-ptf` Python package
-  and to batch predictions.
-- For a curve you intend to compare against others, prefer a consistent,
-  reasonably dense log-spaced grid over the range of interest.
-
-The θ<sub>sat</sub>, FC and PWP cards above the figure are interpolated from
-the curve you requested, and are shown only when 0.01, 33 and 1500 kPa fall
-inside your range.  Outside it they are left blank rather than extrapolated.
+The θ<sub>sat</sub>, FC and PWP cards above the figure are taken from the curve
+you requested, and appear only when 0.01, 33 and 1500 kPa fall inside your
+range.
 """, unsafe_allow_html=True)
 
     st.markdown("#### Ensemble spread")
