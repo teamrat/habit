@@ -101,15 +101,13 @@ st.markdown("""
 .stNumberInput > div > div > input { text-align: center; }
 .stNumberInput button { display: none !important; }
 
-/* Centre the labels above number inputs (Sand/Silt/Clay, Min/Max/Points) */
-.stNumberInput label,
+/* Centre the labels above number inputs (Sand/Silt/Clay, Min/Max/Points).
+   Do NOT set `display` — label_visibility="collapsed" hides labels that way,
+   and overriding it makes the BD/OC/Ksat labels reappear. */
 .stNumberInput [data-testid="stWidgetLabel"] {
-    width: 100%;
-    display: flex;
     justify-content: center;
 }
-.stNumberInput [data-testid="stWidgetLabel"] p,
-.stNumberInput label p {
+.stNumberInput [data-testid="stWidgetLabel"] p {
     width: 100%;
     text-align: center;
 }
@@ -512,7 +510,7 @@ with tab1:
             oc_in = None
 
         ksat_c1, ksat_c2 = st.columns([2, 1])
-        ksat_on = ksat_c1.toggle("Kₛₐₜ (cm/day)",
+        ksat_on = ksat_c1.toggle("Ksat (cm/day)",
                                  value=(d_ksat is not None), key="ksat_on")
         if ksat_on:
             ksat_in = ksat_c2.number_input(
