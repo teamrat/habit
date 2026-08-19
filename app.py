@@ -1148,8 +1148,18 @@ over the four property embeddings (texture, bulk density, organic carbon,
 Ksat).  We display the column-wise mean: the average attention each property
 *receives* from all other properties.  Higher weight means the model relies
 more on that property for the current soil.  Properties you did not provide
-are masked and shown in gray — the model learns to ignore them.  Error bars
-show the spread across the 20 ensemble members.
+are shown in gray, and the weights always sum to one.  Error bars show the
+spread across the 20 ensemble members.
+
+Organic carbon and Ksat are excluded from the attention when you do not
+supply them, so their bars read exactly zero.  **Bulk density is different.**
+The model always keeps a slot for it, so its bar is non-zero even at Stage 0,
+where you have given no bulk density at all.  That weight is not a reading of
+a value you did not provide — it is the model's learned encoding of *bulk
+density unknown*, which is itself informative.  The model distinguishes the
+two states: for a medium-textured soil the bulk density bar sits near 0.34
+when no value is given and near 0.50 once one is, and the predicted curve
+shifts accordingly.
 
 **Cross-attention** (inside the expander) captures pairwise interactions
 between specific property pairs.  HABIT has two cross-attention modules:
