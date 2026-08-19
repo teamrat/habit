@@ -2,13 +2,14 @@
 
 Interactive web app for **HABIT** (Hierarchical Attention-Based Inference with Transfer Learning), a pre-trained ensemble model for predicting soil water retention curves.
 
-**Paper:** Ghezzehei TA (2025). *Water Resources Research*.
+**Paper:** Ghezzehei TA (2026). *Water Resources Research*, 62, e2025WR042833.
+[doi:10.1029/2025WR042833](https://doi.org/10.1029/2025WR042833)
 
 **Model weights:** [Teamrat/habit](https://huggingface.co/Teamrat/habit)
 
 ## Live app
 
-[**Launch HABIT Predictor**](https://habit-ptf.streamlit.app) on Streamlit Community Cloud.
+[**Launch HABIT Predictor**](https://soil-habit.streamlit.app) on Streamlit Community Cloud.
 
 ## Features
 
@@ -18,6 +19,17 @@ Interactive web app for **HABIT** (Hierarchical Attention-Based Inference with T
 - Single soil prediction with interactive plot
 - Batch prediction from CSV upload
 - Download results as CSV
+
+## Input units
+
+Units are fixed and are **not** auto-detected or converted:
+
+| Property | Units |
+|----------|-------|
+| Sand, silt, clay | percent by mass (summing to ~100) |
+| Bulk density | g/cm³ |
+| Organic carbon | percent by mass |
+| Ksat | cm/day |
 
 ## How it works
 

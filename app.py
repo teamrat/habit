@@ -55,6 +55,10 @@ st.markdown("""
     text-transform: uppercase; letter-spacing: 0.14em;
     margin: 0.9rem 0 0.15rem 0;
 }
+/* Opt out of the uppercasing — e.g. so σ does not render as Σ */
+.section-label .nocaps { text-transform: none; }
+/* Extra breathing room above the attention chart heading */
+.section-label.attn-label { margin-top: 2rem; }
 
 /* Texture sum */
 .tex-ok   { color: #4B6B54; font-size: 0.82rem; font-weight: 600; }
@@ -96,6 +100,19 @@ st.markdown("""
 /* Inputs — hide +/- stepper buttons */
 .stNumberInput > div > div > input { text-align: center; }
 .stNumberInput button { display: none !important; }
+
+/* Centre the labels above number inputs (Sand/Silt/Clay, Min/Max/Points) */
+.stNumberInput label,
+.stNumberInput [data-testid="stWidgetLabel"] {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+}
+.stNumberInput [data-testid="stWidgetLabel"] p,
+.stNumberInput label p {
+    width: 100%;
+    text-align: center;
+}
 .stDownloadButton > button { width: 100%; }
 
 /* Footer */
@@ -115,6 +132,19 @@ st.markdown("""
 HF_REPO_ID = "Teamrat/habit"
 NUM_MEMBERS = 20
 
+# Reference water potentials for the summary cards. These are always appended
+# to the user's requested range so the cards are read off exact predictions
+# rather than interpolated (or, worse, clamped) values. They are then dropped
+# from the plot, the table and the CSV unless the user's own range happens to
+# contain them.
+#
+# 0.01 kPa is the wet-end limit of the training data: log10(psi) was clamped at
+# -2.0 during preprocessing, so no training point lies below it. Anything wetter
+# would be extrapolation.
+WP_SAT, WP_FC, WP_PWP = 0.01, 33.0, 1500.0
+REF_WP_KPA = np.array([WP_SAT, WP_FC, WP_PWP])
+WP_MIN_ALLOWED = WP_SAT
+
 # Design-language palette for plots
 PLOT_BG = "#F1ECE3"
 PLOT_SURFACE = "#FBF8F2"
@@ -126,11 +156,18 @@ PLOT_ACCENT = "#A24A28"
 PLOT_ACCENT_LIGHT = "#D4835E"
 PLOT_ACCENT2 = "#4B6B54"
 
+# Full-precision RobustScaler parameters, copied verbatim from
+# HABIT-training/data/processed/scaler_params.json (identical to the
+# huggingface-repo and WRR-dryad copies). Do not round these — the previous
+# 4-decimal values shifted scaled inputs by up to 1.2e-4.
 SCALER_PARAMS = {
-    "texture": {"center": [0.2712, 0.413, 0.172], "scale": [0.456, 0.4543, 0.183]},
-    "bd": {"center": [1.4], "scale": [0.31]},
-    "oc": {"center": [1.28], "scale": [1.9902]},
-    "ksat": {"center": [2.1206], "scale": [1.5133]},
+    "texture": {
+        "center": [0.2712, 0.413, 0.172],
+        "scale": [0.45599999999999996, 0.454347652347652, 0.18299999999999997],
+    },
+    "bd": {"center": [1.4], "scale": [0.31000000000000005]},
+    "oc": {"center": [1.28], "scale": [1.990208817]},
+    "ksat": {"center": [2.120606831056773], "scale": [1.5132958130817589]},
 }
 
 
@@ -163,11 +200,47 @@ def robust_scale(values, center, scale):
     return ((values - np.array(center)) / np.array(scale)).astype(np.float32)
 
 
+def transform_oc(oc_pct):
+    """Training-time organic carbon transform.
+
+    Reproduces `transform_organic_carbon` in
+    HABIT-training/preprocessing/data_preparation_full.py:
+
+        log(1 + 10 * OC%) / log(11)
+
+    OC is in PERCENT by mass. Verified to machine precision (1e-16) against
+    the archived training arrays in HABIT-WRR-dryad/data/processed/, whose
+    `oc` scaler (center 1.28, scale 1.9902) was fit on this transform's
+    output. Do NOT substitute log1p — it is a different function and shifts
+    the scaled value by roughly 0.4-1.0 IQR.
+    """
+    return np.log(1.0 + 10.0 * np.maximum(oc_pct, 1e-5)) / np.log(11.0)
+
+
+def transform_ksat(ksat_cm_day):
+    """Training-time saturated hydraulic conductivity transform: log10(Ksat).
+
+    Ksat in cm/day. Verified exactly against the archived level-3 arrays.
+    """
+    return np.log10(np.maximum(ksat_cm_day, 1e-6))
+
+
+# ── Units ─────────────────────────────────────────────────────────────────
+# Inputs are interpreted in fixed units. There is no auto-detection:
+#   texture — percent by mass (sand + silt + clay ~ 100)
+#   bd      — g/cm3
+#   oc      — percent by mass
+#   ksat    — cm/day
+# Texture is renormalized to fractions summing to 1 before scaling, matching
+# the training data (archive row sums are exactly 1.0).
+
+
 def prepare_inputs(sand, silt, clay, bd, oc, ksat, wp_kpa):
+    # Texture: percent in, fractions summing to 1 out
     sand_f, silt_f, clay_f = float(sand), float(silt), float(clay)
-    if sand_f + silt_f + clay_f > 5:
-        sand_f, silt_f, clay_f = sand_f / 100, silt_f / 100, clay_f / 100
     total = sand_f + silt_f + clay_f
+    if total <= 0:
+        raise ValueError("Texture percentages must sum to a positive value.")
     sand_f, silt_f, clay_f = sand_f / total, silt_f / total, clay_f / total
 
     texture_sc = robust_scale(
@@ -186,10 +259,7 @@ def prepare_inputs(sand, silt, clay, bd, oc, ksat, wp_kpa):
         bd_sc = np.zeros((1, 1), dtype=np.float32)
 
     if oc is not None:
-        oc_val = float(oc)
-        if oc_val > 1.0:
-            oc_val /= 100
-        oc_log = np.log1p(oc_val)
+        oc_log = transform_oc(float(oc))          # OC in percent
         oc_sc = robust_scale(np.array([[oc_log]]),
                              SCALER_PARAMS["oc"]["center"], SCALER_PARAMS["oc"]["scale"])
         mask[0, 2] = 1.0
@@ -197,7 +267,7 @@ def prepare_inputs(sand, silt, clay, bd, oc, ksat, wp_kpa):
         oc_sc = np.zeros((1, 1), dtype=np.float32)
 
     if ksat is not None:
-        ksat_log = np.log10(max(float(ksat), 1e-6))
+        ksat_log = transform_ksat(float(ksat))    # Ksat in cm/day
         ksat_sc = robust_scale(np.array([[ksat_log]]),
                                SCALER_PARAMS["ksat"]["center"], SCALER_PARAMS["ksat"]["scale"])
         mask[0, 3] = 1.0
@@ -219,10 +289,6 @@ def get_stage_label(mask):
         (1, 1, 1, 1): "Stage 3 — all properties",
     }
     return names.get(tuple(int(m) for m in mask[0]), "Custom")
-
-
-def run_ensemble(sessions, feed):
-    return np.array([s.run(None, feed)[0][0] for s in sessions])
 
 
 def run_ensemble_with_attention(sessions, feed):
@@ -275,10 +341,10 @@ def prepare_batch_inputs(df, cols_lower, wp_kpa):
     silt = pd.to_numeric(df[cols_lower["silt"]], errors="coerce").values
     clay = pd.to_numeric(df[cols_lower["clay"]], errors="coerce").values
 
+    # Texture is percent by mass; renormalize to fractions summing to 1.
+    # (Renormalizing makes the percent-to-fraction division redundant, but the
+    # caller validates the percent sum before we get here.)
     totals = sand + silt + clay
-    if np.nanmean(totals) > 5:
-        sand, silt, clay = sand / 100, silt / 100, clay / 100
-        totals = sand + silt + clay
     sand, silt, clay = sand / totals, silt / totals, clay / totals
 
     texture_sc = robust_scale(
@@ -302,13 +368,12 @@ def prepare_batch_inputs(df, cols_lower, wp_kpa):
     else:
         bd_sc = np.zeros((n, 1), dtype=np.float32)
 
-    # OC
+    # OC — percent by mass
     if "oc" in cols_lower:
         oc_raw = pd.to_numeric(df[cols_lower["oc"]], errors="coerce").values
         oc_ok = ~np.isnan(oc_raw)
         oc_vals = np.where(oc_ok, oc_raw, 0.0)
-        oc_vals = np.where(oc_vals > 1.0, oc_vals / 100, oc_vals)
-        oc_log = np.log1p(oc_vals).reshape(-1, 1).astype(np.float32)
+        oc_log = transform_oc(oc_vals).reshape(-1, 1).astype(np.float32)
         oc_sc = robust_scale(oc_log, SCALER_PARAMS["oc"]["center"],
                              SCALER_PARAMS["oc"]["scale"])
         oc_sc[~oc_ok] = 0.0
@@ -316,13 +381,12 @@ def prepare_batch_inputs(df, cols_lower, wp_kpa):
     else:
         oc_sc = np.zeros((n, 1), dtype=np.float32)
 
-    # Ksat
+    # Ksat — cm/day
     if "ksat" in cols_lower:
         ksat_raw = pd.to_numeric(df[cols_lower["ksat"]], errors="coerce").values
         ksat_ok = ~np.isnan(ksat_raw)
         ksat_vals = np.where(ksat_ok, ksat_raw, 1.0)
-        ksat_log = np.log10(np.maximum(ksat_vals, 1e-6)).reshape(-1, 1) \
-                   .astype(np.float32)
+        ksat_log = transform_ksat(ksat_vals).reshape(-1, 1).astype(np.float32)
         ksat_sc = robust_scale(ksat_log, SCALER_PARAMS["ksat"]["center"],
                                SCALER_PARAMS["ksat"]["scale"])
         ksat_sc[~ksat_ok] = 0.0
@@ -413,8 +477,7 @@ with tab1:
         clay_in = tc3.number_input("Clay", value=d_clay, format="%.1f",
                                    key="clay", min_value=0.0)
 
-        tex_sum = sand_in + silt_in + clay_in
-        tex_pct = tex_sum if tex_sum > 5 else tex_sum * 100
+        tex_pct = sand_in + silt_in + clay_in   # percent by mass
         if abs(tex_pct - 100) < 2:
             st.markdown(f'<span class="tex-ok">✓ {tex_pct:.1f}%</span>',
                         unsafe_allow_html=True)
@@ -464,7 +527,8 @@ with tab1:
                     unsafe_allow_html=True)
         wc1, wc2, wc3 = st.columns(3)
         wp_min = wc1.number_input("Min (kPa)", value=0.1,
-                                  format="%.1f", key="wp_min")
+                                  format="%.2f", key="wp_min",
+                                  min_value=WP_MIN_ALLOWED)
         wp_max = wc2.number_input("Max (kPa)", value=15000.0,
                                   format="%.0f", key="wp_max")
         n_pts = wc3.number_input("Points", value=50, key="n_pts",
@@ -483,15 +547,19 @@ with tab1:
                 st.error(f"Texture fractions sum to {tex_pct:.1f}% "
                          "— must be close to 100%.")
         else:
-            wp_kpa = np.logspace(
-                np.log10(max(float(wp_min), 0.1)),
+            # The user's own grid...
+            wp_user = np.logspace(
+                np.log10(max(float(wp_min), WP_MIN_ALLOWED)),
                 np.log10(float(wp_max)),
                 int(n_pts),
             )
-            # Ensure key reference points are included
-            for ref_kpa in [0.1, 33.0, 1500.0]:
-                if max(float(wp_min), 0.1) <= ref_kpa <= float(wp_max):
-                    wp_kpa = np.union1d(wp_kpa, [ref_kpa])
+            # ...plus the three reference points, so theta_sat / FC / PWP are
+            # read off exact predictions. union1d sorts and de-duplicates, so a
+            # reference point the user already asked for is not doubled.
+            wp_kpa = np.union1d(wp_user, REF_WP_KPA)
+            # Everything except reference-only points is shown to the user.
+            display_mask = np.isin(wp_kpa, wp_user)
+
             feed, mask = prepare_inputs(
                 sand_in, silt_in, clay_in, bd_in, oc_in, ksat_in, wp_kpa)
             stage_label = get_stage_label(mask)
@@ -502,6 +570,7 @@ with tab1:
 
             res_dict = {
                 "wp_kpa": wp_kpa,
+                "display_mask": display_mask,
                 "all_preds": all_preds,
                 "mean": np.mean(all_preds, axis=0),
                 "std": np.std(all_preds, axis=0),
@@ -527,38 +596,43 @@ with tab1:
     with right:
         res = st.session_state.get("results")
         if res is not None:
-            wp_kpa = res["wp_kpa"]
-            all_preds = res["all_preds"]
-            mean = res["mean"]
-            std = res["std"]
-            lower, upper = res["lower"], res["upper"]
+            wp_full = res["wp_kpa"]
+            dmask = res.get("display_mask",
+                            np.ones(len(wp_full), dtype=bool))
+            all_preds_full = res["all_preds"]
+            mean_full = res["mean"]
             stage_label = res["stage_label"]
+
+            # What the user sees: their own grid, with the reference-only
+            # points removed again.
+            wp_kpa = wp_full[dmask]
+            all_preds = all_preds_full[:, dmask]
+            mean = mean_full[dmask]
+            std = res["std"][dmask]
+            lower, upper = res["lower"][dmask], res["upper"][dmask]
 
             # Stage badge
             st.markdown(
                 f'<span class="stage-badge">{stage_label}</span>',
                 unsafe_allow_html=True)
 
-            # Summary metrics — interpolate at reference points
-            theta_sat = np.interp(0.1, wp_kpa, mean)
-            theta_fc = np.interp(33.0, wp_kpa, mean)
-            theta_pwp = np.interp(1500.0, wp_kpa, mean)
-            st.markdown(f"""
-            <div class="metric-row">
-                <div class="metric-card">
-                    <div class="val">{theta_sat:.3f}</div>
-                    <div class="lbl">θ<sub>sat</sub> (0.1 kPa)</div>
-                </div>
-                <div class="metric-card">
-                    <div class="val">{theta_fc:.3f}</div>
-                    <div class="lbl">FC (33 kPa)</div>
-                </div>
-                <div class="metric-card">
-                    <div class="val">{theta_pwp:.3f}</div>
-                    <div class="lbl">PWP (1500 kPa)</div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            # Summary metrics — read off the exact reference points, which are
+            # always present in wp_full, so no interpolation or clamping.
+            ref_points = [
+                (WP_SAT, f"θ<sub>sat</sub> ({WP_SAT:g} kPa)"),
+                (WP_FC, f"FC ({WP_FC:g} kPa)"),
+                (WP_PWP, f"PWP ({WP_PWP:g} kPa)"),
+            ]
+            cards = []
+            for ref_kpa, lbl in ref_points:
+                hit = np.flatnonzero(wp_full == ref_kpa)
+                val = f"{mean_full[hit[0]]:.3f}" if hit.size else "—"
+                cards.append(
+                    f'<div class="metric-card"><div class="val">{val}</div>'
+                    f'<div class="lbl">{lbl}</div></div>')
+            st.markdown(
+                f'<div class="metric-row">{"".join(cards)}</div>',
+                unsafe_allow_html=True)
 
             # Plot
             fig = make_plot(wp_kpa, all_preds, mean, lower, upper,
@@ -614,8 +688,9 @@ with tab1:
                 ax_attn.invert_yaxis()
                 fig_attn.tight_layout()
 
-                st.markdown('<p class="section-label">Property attention '
-                            '(ensemble mean ± σ)</p>',
+                st.markdown('<p class="section-label attn-label">'
+                            'Property attention (ensemble mean ± '
+                            '<span class="nocaps">σ</span>)</p>',
                             unsafe_allow_html=True)
                 st.pyplot(fig_attn)
                 plt.close(fig_attn)
@@ -690,7 +765,9 @@ with tab1:
                     wp_attn = res["wp_attention"]  # (20, H, 1, num_wp)
                     wp_avg = np.mean(
                         np.mean(wp_attn, axis=1), axis=0)  # (1, num_wp)
-                    wp_weights = wp_avg[0]  # (num_wp,)
+                    # Weights run over the full axis; drop the reference-only
+                    # points so this lines up with wp_kpa.
+                    wp_weights = wp_avg[0][dmask]  # (num_display_wp,)
 
                     fig_wp, ax_wp = plt.subplots(figsize=(8, 2))
                     fig_wp.patch.set_facecolor(PLOT_BG)
@@ -779,7 +856,9 @@ with tab2:
     ci, ct = st.columns([2.5, 1])
     ci.markdown(
         "Upload a CSV with soil properties. The model detects which "
-        "properties each row provides and adapts automatically."
+        "properties each row provides and adapts automatically. "
+        "Units are fixed: texture and organic carbon in **percent**, "
+        "bulk density in **g/cm³**, Ksat in **cm/day**."
     )
     template_csv = (
         "soil_id,sand,silt,clay,bd,oc,ksat\n"
@@ -793,15 +872,18 @@ with tab2:
 
     with st.expander("CSV format details"):
         st.markdown("""
-**Required columns:** `sand`, `silt`, `clay` — percentages (0–100) or
-fractions (0–1), must sum to ~100% or ~1.0
+**Units are fixed — values are not auto-converted.** Supply each column in
+exactly the units below.
+
+**Required columns:** `sand`, `silt`, `clay` — percent by mass (0–100),
+summing to ~100.
 
 **Optional columns** (leave cells empty to omit for that row):
 
 | Column | Units | Notes |
 |--------|-------|-------|
 | `bd` | g/cm³ | Bulk density |
-| `oc` | % by mass | Organic carbon |
+| `oc` | % by mass | Organic carbon — e.g. `1.2` means 1.2%, `0.8` means 0.8% |
 | `ksat` | cm/day | Saturated hydraulic conductivity |
 | `soil_id` | — | Row identifier (auto-numbered if absent) |
 
@@ -850,6 +932,24 @@ Rows in the same CSV can have different stages.
                      f"Found: {list(df.columns)}")
             st.stop()
 
+        # Texture must be in percent — units are fixed, not auto-detected.
+        tex_totals = sum(
+            pd.to_numeric(df[cols_lower[c]], errors="coerce").values
+            for c in ["sand", "silt", "clay"])
+        median_total = np.nanmedian(tex_totals)
+        if median_total < 50:
+            st.error(
+                f"Texture must be given in percent (sand + silt + clay ≈ 100). "
+                f"The median row sums to {median_total:.3g} — if your values "
+                f"are fractions, multiply them by 100.")
+            st.stop()
+        n_bad = int(np.sum(np.abs(tex_totals - 100) > 10))
+        if n_bad:
+            st.warning(
+                f"{n_bad:,} row(s) have sand + silt + clay more than 10% away "
+                f"from 100. They will still be renormalized to sum to 1, but "
+                f"check those rows.")
+
         n_soils = len(df)
         n_wp = len(wp_kpa)
 
@@ -875,10 +975,13 @@ Rows in the same CSV can have different stages.
             e = min(s + CHUNK, n_soils)
             chunk_feed = {k: v[s:e] for k, v in feed.items()}
 
-            preds = np.array(
-                [sess.run(["water_content"], chunk_feed)[0]
-                 for sess in ENSEMBLE]
-            )  # (20, chunk, n_wp)
+            # Request every output we need in a single pass per session —
+            # running the ensemble twice to add attention doubles batch time.
+            wanted = (["water_content", "property_attention_weights"]
+                      if attn_available else ["water_content"])
+            outs = [sess.run(wanted, chunk_feed) for sess in ENSEMBLE]
+
+            preds = np.array([o[0] for o in outs])  # (20, chunk, n_wp)
 
             all_mean.append(np.mean(preds, axis=0))
             all_std.append(np.std(preds, axis=0))
@@ -886,13 +989,9 @@ Rows in the same CSV can have different stages.
             all_q975.append(np.percentile(preds, 97.5, axis=0))
 
             if attn_available:
-                # Collect property attention per ensemble member
-                prop_attn = np.array([
-                    sess.run(["property_attention_weights"],
-                             chunk_feed)[0]
-                    for sess in ENSEMBLE
-                ])  # (20, chunk, H, 4, 4)
-                # Average over ensemble, heads, then column mean
+                prop_attn = np.array([o[1] for o in outs])
+                # (20, chunk, H, 4, 4) → average over ensemble, then heads,
+                # then take the column mean over the 4×4 attention matrix
                 avg = np.mean(np.mean(prop_attn, axis=0), axis=1)  # (chunk, 4, 4)
                 col_means = np.mean(avg, axis=1)  # (chunk, 4)
                 all_attn.append(col_means)
@@ -1077,10 +1176,10 @@ install the Python package.  It downloads the same 20-member ensemble
 used by this web app.
 """)
     st.code("pip install habit-ptf", language="bash")
-    st.code("""from habit_ptf import load_ensemble
+    st.code("""from habit_inference import load_ensemble
 
-predictor = load_ensemble()
-result = predictor.predict(soil_dataframe)""", language="python")
+predictor = load_ensemble()          # downloads the ONNX ensemble on first use
+result = predictor.predict(soil_dataframe)   # texture & OC in %, BD g/cm3, Ksat cm/day""", language="python")
     st.markdown(
         '[Model weights on HuggingFace](https://huggingface.co/Teamrat/habit)')
 
