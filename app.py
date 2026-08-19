@@ -24,6 +24,56 @@ st.set_page_config(
     layout="wide",
 )
 
+# ── Theme ─────────────────────────────────────────────────────────────────
+# One palette drives both the CSS and the matplotlib figures, so the page and
+# the plots can never drift apart. The active theme comes from Streamlit's own
+# API (st.context.theme.type). Per its docs that can be unset on the very first
+# load of a session and briefly stale right after a theme switch, so it falls
+# back to the base declared in .streamlit/config.toml.
+
+PALETTE = {
+    "light": {
+        "bg": "#F1ECE3", "surface": "#FBF8F2", "secondary": "#E7E0D2",
+        "text": "#2A2621", "muted": "#63594F", "faint": "#726657",
+        "border": "#DDD5C6", "accent": "#A24A28", "accent_light": "#D4835E",
+        "accent2": "#4B6B54", "accent2_deep": "#2D4032", "ghost": "#C8BCA8",
+    },
+    # Values for bg / secondary / text / border / accent are taken verbatim
+    # from [theme.dark] in config.toml; the rest are the light tones inverted
+    # in lightness to keep contrast against the dark background.
+    "dark": {
+        "bg": "#1B1815", "surface": "#221E1A", "secondary": "#201C18",
+        "text": "#ECE5D9", "muted": "#B3A897", "faint": "#9A8E7D",
+        "border": "#38322A", "accent": "#E39468", "accent_light": "#F0B492",
+        "accent2": "#8FB89A", "accent2_deep": "#C7DCCD", "ghost": "#4A4238",
+    },
+}
+
+
+def _active_theme() -> str:
+    try:
+        t = st.context.theme.type
+    except Exception:
+        t = None
+    if t in PALETTE:
+        return t
+    base = st.get_option("theme.base")
+    return base if base in PALETTE else "light"
+
+
+THEME = _active_theme()
+C = PALETTE[THEME]
+
+# Expose the palette to CSS as custom properties we define ourselves, so no
+# rule has to guess at a Streamlit-internal variable name or carry a literal
+# fallback that silently wins.
+st.markdown(
+    "<style>:root{"
+    + "".join(f"--habit-{k.replace('_', '-')}:{v};" for k, v in C.items())
+    + "}</style>",
+    unsafe_allow_html=True,
+)
+
 # ── CSS ───────────────────────────────────────────────────────────────────
 
 st.markdown("""
@@ -36,22 +86,26 @@ st.markdown("""
 
 /* Header */
 .app-header { margin: 0.3rem 0 1.5rem 0; }
+/* Inherit Streamlit's own themed text colour. Do NOT use var(--text-color):
+   Streamlit does not expose that custom property, so it silently falls back
+   to the literal — which matched the light theme by luck and rendered the
+   title near-invisible against the dark background. */
 .app-title {
     font-family: 'Fraunces', serif;
     font-size: 40px !important; font-weight: 600;
-    color: var(--text-color, #2A2621);
+    color: inherit;
     margin: 0; letter-spacing: -0.015em;
 }
 .app-title span { font-weight: 400; }
 .app-subtitle {
     font-size: 0.9rem; font-weight: 400;
-    color: var(--text-color, #726657); opacity: 0.6;
+    color: inherit; opacity: 0.6;
     margin: 0.15rem 0 0 0; letter-spacing: 0.02em;
 }
 
 /* Eyebrow / section labels */
 .section-label {
-    font-size: 0.7rem; font-weight: 600; color: #A24A28;
+    font-size: 0.7rem; font-weight: 600; color: var(--habit-accent);
     text-transform: uppercase; letter-spacing: 0.14em;
     margin: 0.9rem 0 0.15rem 0;
 }
@@ -61,43 +115,43 @@ st.markdown("""
 .section-label.attn-label { margin-top: 2rem; }
 
 /* Texture sum */
-.tex-ok   { color: #4B6B54; font-size: 0.82rem; font-weight: 600; }
-.tex-warn { color: #A24A28; font-size: 0.82rem; font-weight: 600; }
+.tex-ok   { color: var(--habit-accent2); font-size: 0.82rem; font-weight: 600; }
+.tex-warn { color: var(--habit-accent); font-size: 0.82rem; font-weight: 600; }
 
 /* Stage badge */
 .stage-badge {
     display: inline-block;
-    background: #F1ECE3; color: #A24A28;
+    background: var(--habit-bg); color: var(--habit-accent);
     padding: 0.2rem 0.65rem; border-radius: 999px;
     font-weight: 600; font-size: 0.8rem;
     margin-bottom: 0.4rem;
-    border: 1px solid #DDD5C6;
+    border: 1px solid var(--habit-border);
 }
 
 /* Metric row */
 .metric-row { display: flex; gap: 0.6rem; margin-bottom: 0.6rem; }
 .metric-card {
-    flex: 1; background: #FBF8F2; border: 1px solid #DDD5C6;
+    flex: 1; background: var(--habit-surface); border: 1px solid var(--habit-border);
     border-radius: 12px; padding: 0.45rem 0.6rem; text-align: center;
 }
-.metric-card .val { font-size: 1rem; font-weight: 700; color: #2A2621; }
-.metric-card .lbl { font-size: 0.68rem; color: #726657; text-transform: uppercase;
+.metric-card .val { font-size: 1rem; font-weight: 700; color: var(--habit-text); }
+.metric-card .lbl { font-size: 0.68rem; color: var(--habit-faint); text-transform: uppercase;
                      letter-spacing: 0.06em; }
-.metric-card .lbl-note { font-size: 0.6rem; color: #A24A28; text-transform: none;
+.metric-card .lbl-note { font-size: 0.6rem; color: var(--habit-accent); text-transform: none;
                      letter-spacing: 0; font-style: italic; }
 
 /* Ensemble note */
 .ens-note {
-    background: #FBF8F2; border-left: 3px solid #A24A28;
+    background: var(--habit-surface); border-left: 3px solid var(--habit-accent);
     border-radius: 0 6px 6px 0;
     padding: 0.55rem 0.85rem; margin: 0.4rem 0 0.6rem 0;
-    font-size: 0.78rem; color: #63594F; line-height: 1.65;
+    font-size: 0.78rem; color: var(--habit-muted); line-height: 1.65;
 }
 
 /* Empty state */
-.empty-state { text-align: center; padding: 6rem 2rem; color: #C8BCA8; }
+.empty-state { text-align: center; padding: 6rem 2rem; color: var(--habit-ghost); }
 .empty-state .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
-.empty-state p { font-size: 0.9rem; color: #726657; }
+.empty-state p { font-size: 0.9rem; color: var(--habit-faint); }
 
 /* Inputs — hide +/- stepper buttons */
 .stNumberInput > div > div > input { text-align: center; }
@@ -118,11 +172,11 @@ st.markdown("""
 /* Footer */
 .app-footer {
     margin-top: 3rem; padding: 0.8rem 1.5rem;
-    border-top: 1px solid var(--border-color, #DDD5C6);
-    font-size: 0.85rem; color: var(--text-color, #63594F); opacity: 0.7;
+    border-top: 1px solid var(--habit-border);
+    font-size: 0.85rem; color: var(--habit-muted); opacity: 0.7;
     text-align: center; line-height: 1.65;
 }
-.app-footer a { color: var(--primary-color, #A24A28); text-decoration: none; }
+.app-footer a { color: var(--habit-accent); text-decoration: none; }
 .app-footer a:hover { text-decoration: underline; }
 </style>
 """, unsafe_allow_html=True)
@@ -144,16 +198,17 @@ NUM_MEMBERS = 20
 WP_SAT, WP_FC, WP_PWP = 0.01, 33.0, 1500.0
 WP_MIN_ALLOWED = WP_SAT
 
-# Design-language palette for plots
-PLOT_BG = "#F1ECE3"
-PLOT_SURFACE = "#FBF8F2"
-PLOT_INK = "#2A2621"
-PLOT_INK_MUTED = "#63594F"
-PLOT_INK_FAINT = "#726657"
-PLOT_BORDER = "#DDD5C6"
-PLOT_ACCENT = "#A24A28"
-PLOT_ACCENT_LIGHT = "#D4835E"
-PLOT_ACCENT2 = "#4B6B54"
+# Plot palette — same source as the CSS, so figures follow the page theme.
+PLOT_BG = C["bg"]
+PLOT_SURFACE = C["surface"]
+PLOT_INK = C["text"]
+PLOT_INK_MUTED = C["muted"]
+PLOT_INK_FAINT = C["faint"]
+PLOT_BORDER = C["border"]
+PLOT_ACCENT = C["accent"]
+PLOT_ACCENT_LIGHT = C["accent_light"]
+PLOT_ACCENT2 = C["accent2"]
+PLOT_ACCENT2_DEEP = C["accent2_deep"]
 
 # Full-precision RobustScaler parameters, copied verbatim from
 # HABIT-training/data/processed/scaler_params.json (identical to the
@@ -742,7 +797,7 @@ with tab1:
                     fig_coc.patch.set_facecolor(PLOT_BG)
                     ax_coc.set_facecolor(PLOT_BG)
                     _moss_cmap = LinearSegmentedColormap.from_list(
-                        "moss", [PLOT_BG, PLOT_ACCENT2, "#2D4032"])
+                        "moss", [PLOT_BG, PLOT_ACCENT2, PLOT_ACCENT2_DEEP])
                     im2 = ax_coc.imshow(cross_oc_avg, cmap=_moss_cmap,
                                          vmin=0, vmax=1)
                     ax_coc.set_xticks([0, 1])

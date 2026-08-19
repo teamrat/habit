@@ -85,25 +85,49 @@ App rebuilds automatically. If it gets stuck loading, reboot from the Streamlit 
 Matches [Soil Physics Lab](https://soilphysics.ucmerced.edu) at UC Merced.
 
 ### Colors:
-| Token | Light | Dark | Use |
-|-------|-------|------|-----|
-| Background | `#F1ECE3` | `#1B1815` | Page bg |
-| Surface | `#FBF8F2` | — | Cards, legend bg |
-| Secondary bg | `#E7E0D2` | `#201C18` | Sidebar, expanders |
-| Text | `#2A2621` | `#ECE5D9` | Body text |
-| Text muted | `#63594F` | — | Axis labels, secondary |
-| Text faint | `#726657` | — | Tagline, captions |
-| Border | `#DDD5C6` | `#38322A` | Card borders, grid lines |
-| Accent (clay) | `#A24A28` | `#E39468` | Primary, links, curves |
-| Accent light | `#D4835E` | — | Individual ensemble members |
-| Accent2 (moss) | `#4B6B54` | — | OC cross-attention, texture-ok |
+
+All colours live in ONE place: the `PALETTE` dict near the top of `app.py`,
+with a `light` and a `dark` entry sharing the same keys. Do not hardcode a hex
+value anywhere else.
+
+`THEME = _active_theme()` resolves the live theme from `st.context.theme.type`,
+falling back to `theme.base` in config.toml when that is unset (per Streamlit's
+docs it can be unset on a session's first script run and briefly stale right
+after a theme switch). `C = PALETTE[THEME]` is then used two ways:
+
+1. emitted as `--habit-*` CSS custom properties on `:root`, which the whole
+   stylesheet references — these are OUR variables, so they always resolve
+2. assigned to the `PLOT_*` constants, so the matplotlib figures follow the
+   page theme instead of always rendering warm-paper on a dark background
+
+Only bg / secondary / text / border / accent in the dark entry come from
+`[theme.dark]` in config.toml; surface, muted, faint, accent_light, accent2 and
+ghost were derived by inverting lightness and checked for WCAG contrast
+(lowest pair 4.75:1 against a 4.5 threshold).
+
+**Never use `var(--text-color)`, `var(--border-color)` or `var(--primary-color)`.**
+Streamlit does not define them. They fail silently to whatever literal fallback
+is written after the comma, which matched the light theme by luck and left the
+title near-invisible in dark mode for several releases.
+
+| Key | Light | Dark | Use |
+|-----|-------|------|-----|
+| bg | `#F1ECE3` | `#1B1815` | page + plot background |
+| surface | `#FBF8F2` | `#221E1A` | cards, callouts, legend |
+| secondary | `#E7E0D2` | `#201C18` | sidebar, expanders |
+| text | `#2A2621` | `#ECE5D9` | body text |
+| muted | `#63594F` | `#B3A897` | axis labels, footer |
+| faint | `#726657` | `#9A8E7D` | captions, card labels |
+| border | `#DDD5C6` | `#38322A` | card borders, grid lines |
+| accent | `#A24A28` | `#E39468` | primary, links, curves, eyebrows |
+| accent_light | `#D4835E` | `#F0B492` | individual ensemble members |
+| accent2 | `#4B6B54` | `#8FB89A` | OC cross-attention, texture-ok |
+| accent2_deep | `#2D4032` | `#C7DCCD` | far end of the moss colormap |
+| ghost | `#C8BCA8` | `#4A4238` | empty-state icon |
 
 ### Fonts:
 - **Body**: Inter (via Google Fonts in config.toml)
 - **Title**: Fraunces (optical size, serif)
-
-### Plot palette (matplotlib):
-All plots use `PLOT_*` constants defined near top of app.py. Background is warm paper (`#F1ECE3`), curves are terracotta (`#A24A28`), ensemble members are lighter (`#D4835E`).
 
 ### CSS conventions:
 - `.section-label` — uppercase eyebrow labels in accent color with 0.14em letter-spacing
