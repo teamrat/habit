@@ -240,6 +240,10 @@ def load_ensemble():
     opts = ort.SessionOptions()
     opts.inter_op_num_threads = 1
     opts.intra_op_num_threads = 1
+    # ONNX Runtime's CPU arena grows to the largest single call it has seen and
+    # never returns the memory. A 500-soil batch cost 4.5 GB with it on and
+    # 41 MB with it off, and it is also faster here. Measured 2026-08-19.
+    opts.enable_cpu_mem_arena = False
     for i in range(1, NUM_MEMBERS + 1):
         name = f"member_{i:02d}.onnx"
         local = os.path.join(cache_dir, name)
@@ -1035,7 +1039,7 @@ Rows in the same CSV can have different stages.
         feed, mask = prepare_batch_inputs(df, cols_lower, wp_kpa)
 
         # Chunked ensemble inference
-        CHUNK = 500
+        CHUNK = 100
         n_chunks = (n_soils + CHUNK - 1) // CHUNK
         all_mean, all_std, all_q025, all_q975 = [], [], [], []
         all_attn = [] if include_attn else None
