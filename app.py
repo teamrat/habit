@@ -517,7 +517,8 @@ st.markdown("""
 
 ENSEMBLE = load_ensemble()
 
-tab1, tab2, tab3 = st.tabs(["Single Soil", "Batch (CSV)", "About"])
+tab1, tab2, tab3, tab4 = st.tabs(
+    ["Single Soil", "HABIT v1.0 (WRR 2026)", "Help & FAQ", "About"])
 
 # ══════════════════════════════════════════════════════════════════════════
 # Tab 1 — Single Soil  (dashboard layout: inputs left, results right)
@@ -926,11 +927,16 @@ with tab1:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Tab 2 — Batch CSV
+# Tab 2 — HABIT v1.0 (WRR 2026): batch prediction
 # ══════════════════════════════════════════════════════════════════════════
 
 with tab2:
-    st.markdown("#### Batch Prediction")
+    st.markdown("#### Batch Prediction — HABIT v1.0")
+    st.caption(
+        "The model published in Ghezzehei (2026), *Water Resources Research*. "
+        "Predicted water content depends on the full set of water potentials "
+        "requested, not only on the potential itself — see Help & FAQ."
+    )
 
     # ── Instructions + template ───────────────────────────────────────────
     ci, ct = st.columns([2.5, 1])
@@ -1165,43 +1171,36 @@ Rows in the same CSV can have different stages.
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Tab 3 — About
+# Tab 3 — Help & FAQ
 # ══════════════════════════════════════════════════════════════════════════
 
 with tab3:
-    st.markdown("#### About HABIT")
-    st.markdown("""
-HABIT (**H**ierarchical **A**ttention-**B**ased **I**nference with **T**ransfer
-learning) is a deep learning model for predicting soil water retention curves
-from basic soil properties.  It uses a transformer-based architecture with
-property-specific encoders, cross-attention layers that learn interactions
-between properties, a monotonic output layer enforcing physically correct
-behavior, and hierarchical training so one model handles any combination
-of inputs.
+    st.markdown("#### Help & FAQ")
 
-Developed at the
-[Soil Physics Lab](https://soilphysics.ucmerced.edu), UC Merced.
-See [Ghezzehei (2026)](https://doi.org/10.1029/2025WR042833) in
-*Water Resources Research* for full details.
+    st.markdown("#### Input units")
+    st.markdown("""
+Units are fixed.  They are **not** auto-detected and **not** converted.  A value
+in the wrong unit produces a confident, wrong answer.
+
+| Property | Unit |
+|---|---|
+| Sand, silt, clay | percent by mass, summing to ~100 |
+| Bulk density | g/cm³ |
+| Organic carbon | percent by mass — `1.2` means 1.2% |
+| Ksat | cm/day |
+| Water potential | kPa, entered as a positive magnitude |
 """)
 
-    st.markdown("#### Performance")
-    st.markdown("Independent test set, 95% CI from cluster bootstrap "
-                "(1,000 iterations):")
+    st.markdown("#### Reading the output")
+    st.markdown("""
+The line is the mean of 20 independently trained models.  The shaded band and
+the σ values are the spread among those models — see *Ensemble spread* below for
+what that does and does not mean.
 
-    perf_df = pd.DataFrame({
-        "Inputs":         ["Texture only", "+ Bulk density",
-                           "+ Organic carbon", "+ Ksat"],
-        "R²":        ["0.779 [0.737, 0.817]", "0.846 [0.748, 0.906]",
-                           "0.862 [0.781, 0.920]", "0.923 [0.899, 0.944]"],
-        "RMSE (cm³/cm³)": [
-            "0.067 [0.060, 0.074]", "0.056 [0.044, 0.070]",
-            "0.052 [0.040, 0.066]", "0.043 [0.036, 0.050]"],
-        "MAE (cm³/cm³)": [
-            "0.049 [0.044, 0.055]", "0.039 [0.033, 0.049]",
-            "0.038 [0.030, 0.047]", "0.030 [0.026, 0.035]"],
-    })
-    st.dataframe(perf_df, width="stretch", hide_index=True)
+θ<sub>sat</sub>, FC and PWP are read off the predicted curve at 0.01, 33 and
+1500 kPa.  They appear only when those potentials fall inside the range you
+asked for; outside it they are blank rather than extrapolated.
+""", unsafe_allow_html=True)
 
     st.markdown("#### HABIT predicts curves, not points")
     st.markdown("""
@@ -1216,6 +1215,23 @@ The θ<sub>sat</sub>, FC and PWP cards above the figure are taken from the curve
 you requested, and appear only when 0.01, 33 and 1500 kPa fall inside your
 range.
 """, unsafe_allow_html=True)
+
+    st.markdown("#### Why does the same soil give a different answer when I change the range?")
+    st.markdown("""
+Because the set of water potentials you request is an input to the model, not
+just a list of places to evaluate it.
+
+Inside the model, the requested potentials are combined into a single summary
+that shifts the soil's internal representation.  Ask for 33 kPa on its own and
+ask for it inside a range spanning 0.01 to 15000 kPa, and the model is working
+from two slightly different representations of the same soil, so the two answers
+differ.  The effect is small — on a validation set of clod samples, shifts of
+0.015 to 0.028 cm³/cm³ — but it is real, and it means a single reported number
+is only meaningful alongside the range it was computed with.
+
+The practical advice is the section above: ask for a curve, not a point, and
+keep the range wide.  A revision that removes this behaviour is in preparation.
+""")
 
     st.markdown("#### Ensemble spread")
     st.markdown("""
@@ -1275,6 +1291,35 @@ concentrated at the wet end where drainage is rapid, while fine-textured
 soils spread attention more evenly.
 """)
 
+    st.markdown("#### Batch CSV format")
+    st.markdown("""
+Column names, units and the stage rules are documented in the **CSV format
+details** panel on the *HABIT v1.0* tab, next to the template download, so the
+format sits beside the upload box rather than in a separate place that can drift
+out of step with it.
+""")
+
+    st.markdown("#### Troubleshooting")
+    st.markdown("""
+**"CSV must have sand, silt, clay columns"** — the header is missing one of
+them, or it is spelled differently.  Names are matched case-insensitively but
+must otherwise be exact.
+
+**"Texture values look like fractions"** — the three columns sum to about 1
+rather than about 100.  Multiply by 100; the app will not do it for you.
+
+**θ<sub>sat</sub>, FC or PWP showing a dash** — that reference potential falls
+outside the range you asked for.  Widen the range.
+
+**The curve looks flat, or water contents are implausibly high** — check the
+organic carbon column is in percent, not a fraction.  `0.012` means 0.012%,
+not 1.2%.
+
+**Predictions changed between visits** — the model version is shown in the
+footer, linked to the exact weights in use.
+""", unsafe_allow_html=True)
+
+
     st.markdown("#### Install on your machine")
     st.markdown("""
 For batch processing, scripting, or integration into your own workflows,
@@ -1289,8 +1334,67 @@ result = predictor.predict(soil_dataframe)   # texture & OC in %, BD g/cm3, Ksat
     st.markdown(
         '[Model weights on HuggingFace](https://huggingface.co/Teamrat/habit)')
 
+
+# ══════════════════════════════════════════════════════════════════════════
+# Tab 4 — About
+# ══════════════════════════════════════════════════════════════════════════
+
+with tab4:
+    st.markdown("#### About HABIT")
+    st.markdown("""
+HABIT (**H**ierarchical **A**ttention-**B**ased **I**nference with **T**ransfer
+learning) is a deep learning model for predicting soil water retention curves
+from basic soil properties.  It uses a transformer-based architecture with
+property-specific encoders, cross-attention layers that learn interactions
+between properties, a monotonic output layer enforcing physically correct
+behavior, and hierarchical training so one model handles any combination
+of inputs.
+
+Developed at the
+[Soil Physics Lab](https://soilphysics.ucmerced.edu), UC Merced.
+See [Ghezzehei (2026)](https://doi.org/10.1029/2025WR042833) in
+*Water Resources Research* for full details.
+""")
+
+    st.markdown("#### Performance")
+    st.markdown("Independent test set, 95% CI from cluster bootstrap "
+                "(1,000 iterations):")
+
+    perf_df = pd.DataFrame({
+        "Inputs":         ["Texture only", "+ Bulk density",
+                           "+ Organic carbon", "+ Ksat"],
+        "R²":        ["0.779 [0.737, 0.817]", "0.846 [0.748, 0.906]",
+                           "0.862 [0.781, 0.920]", "0.923 [0.899, 0.944]"],
+        "RMSE (cm³/cm³)": [
+            "0.067 [0.060, 0.074]", "0.056 [0.044, 0.070]",
+            "0.052 [0.040, 0.066]", "0.043 [0.036, 0.050]"],
+        "MAE (cm³/cm³)": [
+            "0.049 [0.044, 0.055]", "0.039 [0.033, 0.049]",
+            "0.038 [0.030, 0.047]", "0.030 [0.026, 0.035]"],
+    })
+    st.dataframe(perf_df, width="stretch", hide_index=True)
+
+    st.markdown("#### Citation")
+    st.markdown("""
+Ghezzehei TA (2026). Hierarchical attention-based inference with transfer
+learning for predicting soil water retention.
+*Water Resources Research*, 62, e2025WR042833.
+[doi:10.1029/2025WR042833](https://doi.org/10.1029/2025WR042833)
+""")
+
+    st.markdown("#### Questions")
+    st.markdown(
+        "[UC Merced Soil Physics Lab](https://soilphysics.ucmerced.edu)")
+
     st.markdown("#### License")
     st.markdown("MIT (code and weights). Training data: CC BY 4.0.")
+
+    st.markdown("#### Changelog")
+    st.markdown("""
+**v1.0** — the model published in Ghezzehei (2026), *Water Resources Research*.
+App preprocessing was corrected in August 2026; predictions involving organic
+carbon changed accordingly.
+""")
 
 
 # ── Footer ────────────────────────────────────────────────────────────────
