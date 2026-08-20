@@ -12,8 +12,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import streamlit as st
+
+import batch_v11 as bv11
 import onnxruntime as ort
 from huggingface_hub import hf_hub_download
+import ctypes
 import shutil
 
 # ── Page config ───────────────────────────────────────────────────────────
@@ -187,7 +190,9 @@ HF_REPO_ID = "Teamrat/habit"
 
 # Model version. Appears in the HuggingFace path, the local bundled-weights
 # path and the cache path, so two versions can never share a cache entry.
-MODEL_VERSION = "v1.0"
+V10 = "v1.0"
+V11 = "v1.1"
+MODEL_VERSION = V10          # what the Single Soil tab still uses
 NUM_MEMBERS = 20
 
 # Reference water potentials for the summary cards. These are NOT added to the
@@ -231,10 +236,10 @@ SCALER_PARAMS = {
 
 # ── Load ONNX ensemble ───────────────────────────────────────────────────
 
-@st.cache_resource(show_spinner="Loading HABIT ensemble models...")
-def load_ensemble():
+@st.cache_resource(max_entries=1, show_spinner="Loading HABIT ensemble...")
+def _load_ensemble(version):
     cache_dir = os.path.join(os.path.expanduser("~"), ".cache",
-                             "habit-ptf", MODEL_VERSION)
+                             "habit-ptf", version)
     os.makedirs(cache_dir, exist_ok=True)
     sessions = []
     opts = ort.SessionOptions()
@@ -249,15 +254,31 @@ def load_ensemble():
         local = os.path.join(cache_dir, name)
         if not os.path.exists(local):
             bundled = os.path.join(os.path.dirname(__file__),
-                                   "onnx_weights", MODEL_VERSION, name)
+                                   "onnx_weights", version, name)
             if os.path.exists(bundled):
                 shutil.copy2(bundled, local)
             else:
                 downloaded = hf_hub_download(
                     repo_id=HF_REPO_ID,
-                    filename=f"{MODEL_VERSION}/{name}")
+                    filename=f"{version}/{name}")
                 shutil.copy2(downloaded, local)
         sessions.append(ort.InferenceSession(local, opts, providers=["CPUExecutionProvider"]))
+    return sessions
+
+
+def get_ensemble(version):
+    """One ensemble resident at a time.
+
+    max_entries=1 evicts the other version, but freeing the sessions returns
+    the memory to the allocator, not to the operating system — and RSS is what
+    a container is killed for. glibc needs telling. No-op off glibc, which is
+    why the failure is swallowed.
+    """
+    sessions = _load_ensemble(version)
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
     return sessions
 
 # ── Prediction helpers ────────────────────────────────────────────────────
@@ -398,6 +419,84 @@ def run_ensemble_with_attention(sessions, feed):
     return result
 
 
+@st.cache_data(show_spinner=False)
+def parse_upload(data: bytes):
+    """Parse and validate an uploaded CSV. Cached on the file's bytes so
+    toggling the output controls does not re-read it."""
+    return bv11.parse_batch(pd.read_csv(io.BytesIO(data)))
+
+
+def build_v11_feed(soils):
+    """Scaled inputs for the fixed-grid graph. No water potential: it has none.
+
+    `soils` carries the canonical column names with NaN where a property was
+    not supplied. Transforms and scaler constants are shared with v1.0 — the
+    preprocessing is identical between versions.
+    """
+    n = len(soils)
+    sand = soils["sand"].to_numpy(dtype=float)
+    silt = soils["silt"].to_numpy(dtype=float)
+    clay = soils["clay"].to_numpy(dtype=float)
+    totals = sand + silt + clay
+    texture_sc = robust_scale(
+        np.column_stack([sand / totals, silt / totals,
+                         clay / totals]).astype(np.float32),
+        SCALER_PARAMS["texture"]["center"], SCALER_PARAMS["texture"]["scale"])
+
+    mask = np.zeros((n, 4), dtype=np.float32)
+    mask[:, 0] = 1.0
+
+    def optional(col, slot, transform):
+        raw = soils[col].to_numpy(dtype=float)
+        ok = ~np.isnan(raw)
+        vals = transform(np.where(ok, raw, 0.0)).reshape(-1, 1).astype(np.float32)
+        sc = robust_scale(vals, SCALER_PARAMS[col]["center"],
+                          SCALER_PARAMS[col]["scale"])
+        sc[~ok] = 0.0
+        mask[ok, slot] = 1.0
+        return sc
+
+    return {
+        "texture": texture_sc,
+        "bd": optional("bd", 1, lambda x: x),
+        "oc": optional("oc", 2, transform_oc),
+        "ksat": optional("ksat", 3, transform_ksat),
+        "mask": mask,
+    }
+
+
+def run_fixed_grid(soils, want_attention=False, progress=None):
+    """Canonical-grid curves for each unique soil: (n_members, n_soils, 151).
+
+    One inference per soil regardless of how many output points are wanted —
+    the graph has no say in where the answer is sampled.
+    """
+    sessions = get_ensemble(V11)
+    feed = build_v11_feed(soils)
+    n, m = len(soils), len(sessions)
+    curves = np.empty((m, n, bv11.GRID_LOG10.size), dtype=np.float32)
+    attn = np.zeros((n, 4, 4), dtype=np.float64) if want_attention else None
+    wanted = ["water_content"]
+    if want_attention:
+        wanted.append("property_attention_weights")
+
+    CHUNK = 100
+    for start in range(0, n, CHUNK):
+        end = min(start + CHUNK, n)
+        chunk = {k: v[start:end] for k, v in feed.items()}
+        for mi, sess in enumerate(sessions):
+            outs = sess.run(wanted, chunk)
+            curves[mi, start:end] = outs[0]
+            if want_attention:
+                attn[start:end] += np.mean(outs[1], axis=1)   # over heads
+        if progress is not None:
+            progress(end, n)
+
+    if want_attention:
+        attn = (attn / m).mean(axis=1)      # column mean of the 4x4
+    return curves, attn
+
+
 def prepare_batch_inputs(df, cols_lower, wp_kpa):
     """Vectorized input preparation for a batch of soils."""
     n = len(df)
@@ -515,7 +614,6 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-ENSEMBLE = load_ensemble()
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
     ["Single Soil", "Batch (v1.1)", "Batch (v1.0)", "Help", "About"])
@@ -630,7 +728,7 @@ with tab1:
             stage_label = get_stage_label(mask)
 
             with st.spinner(f"Running {NUM_MEMBERS}-member ensemble…"):
-                ens_result = run_ensemble_with_attention(ENSEMBLE, feed)
+                ens_result = run_ensemble_with_attention(get_ensemble(V10), feed)
                 all_preds = ens_result["preds"]
 
             res_dict = {
@@ -932,20 +1030,115 @@ with tab1:
 
 with tab2:
     st.markdown("#### Batch Prediction — HABIT v1.1")
-    st.markdown("""
-**Coming soon.**
 
-HABIT v1.1 predicts on a fixed grid of water potentials and interpolates to the
-ones you ask for, so the water content reported at 33 kPa no longer depends on
-which other potentials were requested alongside it.  The same soil gives the
-same answer every time.
+    ci, ct = st.columns([2.5, 1])
+    ci.markdown(
+        "Upload a CSV.  Column names are fixed and anything unrecognised is "
+        "rejected rather than ignored.  Units: texture and organic carbon in "
+        "**percent**, bulk density in **g/cm³**, Ksat in **cm/day**, water "
+        "potential in **kPa**."
+    )
+    ct.download_button("Wide template", bv11.TEMPLATE_WIDE,
+                       file_name="habit_template_wide.csv", mime="text/csv",
+                       width="stretch")
+    ct.download_button("Long template", bv11.TEMPLATE_LONG,
+                       file_name="habit_template_long.csv", mime="text/csv",
+                       width="stretch")
 
-The batch interface will also accept a long-form CSV — one row per soil and
-water potential, with an optional measured water content carried through — for
-comparing predictions against your own measurements.
+    with st.expander("CSV format"):
+        st.markdown("""
+| Column | Required | Unit | |
+|---|---|---|---|
+| `soil_id` | yes | — | unique per soil in wide form, repeated in long form |
+| `sand` `silt` `clay` | yes, with values | % | must sum to ~100 |
+| `bd` | header only | g/cm³ | blank if unavailable |
+| `oc` | header only | % | blank if unavailable |
+| `ksat` | header only | cm/day | blank if unavailable |
+| `psi_kpa` | optional | kPa | **its presence selects long form** |
+| `theta_obs` | optional | cm³/cm³ | your measurement, passed through |
+| `note` | optional | — | free text, passed through |
 
-HABIT v1.0 remains available on the next tab.
+**Wide form** — no `psi_kpa` column, one row per soil.  Output potentials come
+from the box below.
+
+**Long form** — `psi_kpa` present, one row per soil *and* potential, each row
+predicted at its own potential.  This is the form for comparing against
+measurements: put your values in `theta_obs` and they come back beside the
+predictions.  Every row of a soil must repeat the same predictor values.
+
+The header must always carry every predictor column; blank cells mark what is
+missing.  Texture must have values — there is no prediction without it.
+Output is long form either way.
 """)
+
+    csv_file = st.file_uploader("Upload CSV", type=["csv"], key="v11_upload")
+
+    parsed = None
+    if csv_file is not None:
+        try:
+            parsed = parse_upload(csv_file.getvalue())
+        except bv11.BatchError as exc:
+            st.error(str(exc))
+        except Exception as exc:
+            st.error(f"Could not read the CSV: {exc}")
+
+    psi = None
+    if parsed is not None:
+        if parsed.form == "long":
+            st.caption(
+                f"Long form — {len(parsed.frame):,} rows, "
+                f"{parsed.n_soils:,} unique soil(s).  Each row is predicted at "
+                f"its own `psi_kpa`.")
+        else:
+            st.caption(f"Wide form — {parsed.n_soils:,} soil(s).")
+            mode = st.radio(
+                "Output potentials",
+                ["Common list", "Full grid (151 points)"],
+                horizontal=True, key="v11_mode")
+            psi_text = st.text_input(
+                "Water potentials (kPa, comma-separated)",
+                value=", ".join(str(v) for v in bv11.DEFAULT_PSI),
+                key="v11_psi",
+                disabled=(mode != "Common list"))
+            try:
+                psi = (bv11.GRID_KPA if mode.startswith("Full")
+                       else bv11.parse_psi_list(psi_text))
+            except bv11.BatchError as exc:
+                st.error(str(exc))
+                psi = None
+
+    include_attn = st.checkbox(
+        "Include property attention weights in download", value=False,
+        key="v11_attn",
+        help="Adds attn_texture, attn_bd, attn_oc, attn_ksat — how much the "
+             "model relied on each property for that soil.")
+
+    ready = parsed is not None and (parsed.form == "long" or psi is not None)
+    if st.button("Predict All", type="primary", key="v11_run", disabled=not ready):
+        bar = st.progress(0.0, text="Predicting...")
+        curves, attn = run_fixed_grid(
+            parsed.soils, want_attention=include_attn,
+            progress=lambda done, total: bar.progress(
+                done / total, text=f"Predicted {done:,}/{total:,} soils"))
+        bar.empty()
+
+        result_df = bv11.build_output(parsed, curves, psi_kpa=psi,
+                                      attention=attn)
+
+        st.success(
+            f"**{parsed.n_soils:,} unique soil(s)** from {len(parsed.frame):,} input "
+            f"row(s) → {len(result_df):,} predictions.  "
+            f"{parsed.form.capitalize()} form."
+        )
+        st.dataframe(result_df.head(50), width="stretch", hide_index=True)
+        if len(result_df) > 50:
+            st.caption(f"Showing first 50 of {len(result_df):,} rows.")
+
+        buf = io.StringIO()
+        result_df.to_csv(buf, index=False)
+        st.download_button("Download results (CSV)", buf.getvalue(),
+                           file_name="habit_v11_predictions.csv",
+                           mime="text/csv")
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -1075,7 +1268,7 @@ Rows in the same CSV can have different stages.
         # Check if models support attention outputs
         attn_available = include_attn and (
             "property_attention_weights" in
-            [o.name for o in ENSEMBLE[0].get_outputs()])
+            [o.name for o in get_ensemble(V10)[0].get_outputs()])
 
         progress = st.progress(0, text=f"Processing {n_soils:,} soils "
                                f"at {n_wp} water potential(s)…")
@@ -1089,7 +1282,7 @@ Rows in the same CSV can have different stages.
             # running the ensemble twice to add attention doubles batch time.
             wanted = (["water_content", "property_attention_weights"]
                       if attn_available else ["water_content"])
-            outs = [sess.run(wanted, chunk_feed) for sess in ENSEMBLE]
+            outs = [sess.run(wanted, chunk_feed) for sess in get_ensemble(V10)]
 
             preds = np.array([o[0] for o in outs])  # (20, chunk, n_wp)
 
@@ -1403,6 +1596,24 @@ DataFrame is returned either way.
   default today; when v1.1 is published the default changes and this is how you
   reach the version the paper used.
 """)
+    st.markdown("**Running this interface on your own machine**")
+    st.markdown("""
+This app is open source, and running it yourself is the same code and the same
+weights — just on your own hardware instead of a shared server, which is
+noticeably quicker for large batches.
+""")
+    st.code("""git clone https://github.com/teamrat/habit.git
+cd habit
+pip install -r requirements.txt
+streamlit run app.py""", language="bash")
+    st.markdown("""
+It opens in your browser.  The weights download from HuggingFace on first run
+and are cached afterwards, so only the first launch needs a connection.
+
+Use this when you want the interface; use the package above when you want to
+script.
+""")
+
     st.markdown(
         "[Model weights on HuggingFace](https://huggingface.co/Teamrat/habit)"
         " · [Package on PyPI](https://pypi.org/project/habit-ptf/)")
@@ -1476,7 +1687,9 @@ st.markdown(f"""
     &nbsp;|&nbsp;
     <a href="https://doi.org/10.1029/2025WR042833">Ghezzehei (WRR, 2026)</a>
     &nbsp;|&nbsp;
-    <a href="https://huggingface.co/{HF_REPO_ID}/tree/main/{MODEL_VERSION}">model {MODEL_VERSION}</a>
+    models
+    <a href="https://huggingface.co/{HF_REPO_ID}/tree/main/{V10}">{V10}</a>,
+    <a href="https://huggingface.co/{HF_REPO_ID}/tree/main/{V11}">{V11}</a>
     &nbsp;|&nbsp;
     &copy; 2026 Teamrat A. Ghezzehei
 </div>
