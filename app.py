@@ -517,8 +517,8 @@ st.markdown("""
 
 ENSEMBLE = load_ensemble()
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["Single Soil", "HABIT v1.0 (WRR 2026)", "Help & FAQ", "About"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["Single Soil", "Batch (v1.1)", "Batch (v1.0)", "Help & FAQ", "About"])
 
 # ══════════════════════════════════════════════════════════════════════════
 # Tab 1 — Single Soil  (dashboard layout: inputs left, results right)
@@ -927,10 +927,32 @@ with tab1:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Tab 2 — HABIT v1.0 (WRR 2026): batch prediction
+# Tab 2 — Batch (v1.1)
 # ══════════════════════════════════════════════════════════════════════════
 
 with tab2:
+    st.markdown("#### Batch Prediction — HABIT v1.1")
+    st.markdown("""
+**Coming soon.**
+
+HABIT v1.1 predicts on a fixed grid of water potentials and interpolates to the
+ones you ask for, so the water content reported at 33 kPa no longer depends on
+which other potentials were requested alongside it.  The same soil gives the
+same answer every time.
+
+The batch interface will also accept a long-form CSV — one row per soil and
+water potential, with an optional measured water content carried through — for
+comparing predictions against your own measurements.
+
+HABIT v1.0 remains available on the next tab.
+""")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Tab 3 — Batch (v1.0)
+# ══════════════════════════════════════════════════════════════════════════
+
+with tab3:
     st.markdown("#### Batch Prediction — HABIT v1.0")
     st.caption(
         "The model published in Ghezzehei (2026), *Water Resources Research*. "
@@ -1171,10 +1193,10 @@ Rows in the same CSV can have different stages.
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Tab 3 — Help & FAQ
+# Tab 4 — Help & FAQ
 # ══════════════════════════════════════════════════════════════════════════
 
-with tab3:
+with tab4:
     st.markdown("#### Help & FAQ")
 
     st.markdown("#### Input units")
@@ -1336,10 +1358,10 @@ result = predictor.predict(soil_dataframe)   # texture & OC in %, BD g/cm3, Ksat
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Tab 4 — About
+# Tab 5 — About
 # ══════════════════════════════════════════════════════════════════════════
 
-with tab4:
+with tab5:
     st.markdown("#### About HABIT")
     st.markdown("""
 HABIT (**H**ierarchical **A**ttention-**B**ased **I**nference with **T**ransfer
@@ -1392,8 +1414,6 @@ learning for predicting soil water retention.
     st.markdown("#### Changelog")
     st.markdown("""
 **v1.0** — the model published in Ghezzehei (2026), *Water Resources Research*.
-App preprocessing was corrected in August 2026; predictions involving organic
-carbon changed accordingly.
 """)
 
 
