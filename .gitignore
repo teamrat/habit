@@ -11,3 +11,4 @@ __pycache__/
 # Local backups (not for distribution)
 onnx_weights_backup/
 app_backup.py
+WATER_POTENTIAL_GRID.md
