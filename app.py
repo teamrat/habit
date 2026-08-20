@@ -1344,17 +1344,68 @@ footer, linked to the exact weights in use.
 
     st.markdown("#### Install on your machine")
     st.markdown("""
-For batch processing, scripting, or integration into your own workflows,
-install the Python package.  It downloads the same 20-member ensemble
-used by this web app.
+For batch work, scripting, or building HABIT into your own analysis, install the
+Python package.  It uses the same 20-member ensemble as this app, downloaded
+from HuggingFace on first use (148 MB) and cached afterwards.
 """)
     st.code("pip install habit-ptf", language="bash")
-    st.code("""from habit_ptf import load_ensemble
 
-predictor = load_ensemble()          # downloads the ONNX ensemble on first use
-result = predictor.predict(soil_dataframe)   # texture & OC in %, BD g/cm3, Ksat cm/day""", language="python")
+    st.markdown("**From a DataFrame**")
+    st.code("""import pandas as pd
+from habit_ptf import load_ensemble
+
+soils = pd.DataFrame({
+    "soil_id": ["s1", "s2", "s3"],
+    "sand":    [40, 65, 90],      # percent by mass
+    "silt":    [40, 25,  5],      # percent
+    "clay":    [20, 10,  5],      # percent, the three summing to ~100
+    "bd":      [1.35, 1.50, None],  # g/cm3, blank where unavailable
+    "oc":      [1.2, None, None],   # percent by mass
+    "ksat":    [50, None, None],    # cm/day
+})
+
+predictor = load_ensemble()
+result = predictor.predict(soils, water_potentials=[0.01, 33, 1500])""",
+            language="python")
+
+    st.markdown("""
+`result` is long form — one row per soil and water potential:
+
+| soil_id | stage | water_potential_kPa | water_content_mean | water_content_std | water_content_q025 | water_content_q975 |
+|---|---|---|---|---|---|---|
+| s1 | Stage 3 | 0.01 | … | … | … | … |
+| s1 | Stage 3 | 33 | … | … | … | … |
+
+`stage` records which properties were used for that row.  Rows in one call may
+differ: `s1` above uses everything, `s2` texture and bulk density, `s3` texture
+alone.  Leave a cell blank and that property is simply not used for that soil.
+
+Omit `water_potentials` and you get a default set spanning 0.01 to 15000 kPa.
+""")
+
+    st.markdown("**Straight from a CSV**")
+    st.code("""predictor.predict_from_csv("soils.csv", "predictions.csv")""",
+            language="python")
+
+    st.markdown("""
+Same columns as above, same units.  Writing the output file is optional — the
+DataFrame is returned either way.
+""")
+
+    st.markdown("**Notes**")
+    st.markdown("""
+- Units are fixed and never converted, exactly as in this app.  Texture and
+  organic carbon in percent, bulk density in g/cm³, Ksat in cm/day.
+- Texture is required and must have values; everything else is optional.
+- The first call downloads the ensemble and takes a minute.  Later calls use the
+  cache in `~/.cache/habit-ptf/`.
+- `load_ensemble(model_version="v1.0")` selects the model explicitly.  It is the
+  default today; when v1.1 is published the default changes and this is how you
+  reach the version the paper used.
+""")
     st.markdown(
-        '[Model weights on HuggingFace](https://huggingface.co/Teamrat/habit)')
+        "[Model weights on HuggingFace](https://huggingface.co/Teamrat/habit)"
+        " · [Package on PyPI](https://pypi.org/project/habit-ptf/)")
 
 
 # ══════════════════════════════════════════════════════════════════════════
