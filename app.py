@@ -1291,11 +1291,13 @@ result = predictor.predict(soil_dataframe)   # texture & OC in %, BD g/cm3, Ksat
 
 # ── Footer ────────────────────────────────────────────────────────────────
 
-st.markdown("""
+st.markdown(f"""
 <div class="app-footer">
     <a href="https://soilphysics.ucmerced.edu">UC Merced Soil Physics Lab</a>
     &nbsp;|&nbsp;
     <a href="https://doi.org/10.1029/2025WR042833">Ghezzehei (WRR, 2026)</a>
+    &nbsp;|&nbsp;
+    <a href="https://huggingface.co/{HF_REPO_ID}/tree/main/{MODEL_VERSION}">model {MODEL_VERSION}</a>
     &nbsp;|&nbsp;
     &copy; 2026 Teamrat A. Ghezzehei
 </div>
