@@ -1113,6 +1113,12 @@ Output is long form either way.
         help="Adds attn_texture, attn_bd, attn_oc, attn_ksat — how much the "
              "model relied on each property for that soil.")
 
+    # No key, so the default follows the uploaded file rather than sticking at
+    # whatever the previous upload set it to.
+    default_name = (os.path.splitext(csv_file.name)[0] + "_predictions.csv"
+                    if csv_file is not None else "habit_v11_predictions.csv")
+    out_name = st.text_input("Output file name", value=default_name)
+
     ready = parsed is not None and (parsed.form == "long" or psi is not None)
     if st.button("Predict All", type="primary", key="v11_run", disabled=not ready):
         bar = st.progress(0.0, text="Predicting...")
@@ -1134,11 +1140,14 @@ Output is long form either way.
         if len(result_df) > 50:
             st.caption(f"Showing first 50 of {len(result_df):,} rows.")
 
+        name = (out_name or "").strip() or default_name
+        if not name.lower().endswith(".csv"):
+            name += ".csv"
+
         buf = io.StringIO()
         result_df.to_csv(buf, index=False)
         st.download_button("Download results (CSV)", buf.getvalue(),
-                           file_name="habit_v11_predictions.csv",
-                           mime="text/csv")
+                           file_name=name, mime="text/csv")
 
 
 # ══════════════════════════════════════════════════════════════════════════
