@@ -83,8 +83,13 @@ def test_interpolation():
           np.allclose(got, want, atol=1e-12),
           f"max diff {np.max(np.abs(got - want)):.1e}")
 
+    # To float64 precision, not bitwise: the grid is uniform, so the bracket is
+    # arithmetic rather than a search, and it reaches the same value by a
+    # different route. Measured worst case across the domain, on nodes and at
+    # both endpoints: 2.3e-16, which is machine epsilon.
     ref = np.interp(np.log10(psi), B.GRID_LOG10, curves[0, 0])
-    check("agrees with numpy.interp", np.allclose(got, ref, atol=0, rtol=0))
+    check("agrees with numpy.interp", np.allclose(got, ref, atol=1e-14, rtol=0),
+          f"max diff {np.max(np.abs(got - ref)):.1e}")
 
     check("endpoints are inside the domain",
           B.PSI_MIN_KPA == 1e-2 and abs(B.PSI_MAX_KPA - 10 ** 5.5) < 1,

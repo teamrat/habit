@@ -248,6 +248,21 @@ def stages_for(soils: pd.DataFrame) -> np.ndarray:
 
 # ── Interpolation and aggregation (4.2) ───────────────────────────────────
 
+def _bracket(log_psi):
+    """Grid cell index and blend weight for each value, arithmetically.
+
+    The grid is uniform in log10 psi, so the bracketing index is a division —
+    no searchsorted, no per-value Python. Values are clipped to the domain;
+    check_psi_domain is what rejects anything outside it, before this runs.
+    """
+    span = GRID_LOG10[-1] - GRID_LOG10[0]
+    spacing = span / (GRID_LOG10.size - 1)
+    pos = np.clip((np.asarray(log_psi, dtype=float) - GRID_LOG10[0]) / spacing,
+                  0.0, GRID_LOG10.size - 1)
+    i0 = np.clip(np.floor(pos), 0, GRID_LOG10.size - 2).astype(np.intp)
+    return i0, pos - i0
+
+
 def interpolate_members(curves: np.ndarray, psi_kpa) -> np.ndarray:
     """Interpolate each member's curve, linearly in log10 psi.
 
@@ -276,12 +291,11 @@ def interpolate_members(curves: np.ndarray, psi_kpa) -> np.ndarray:
         raise ValueError(f"psi has {psi.shape[0]} rows, expected {n_soils}")
     check_psi_domain(psi.ravel())
 
-    x = np.log10(psi)
-    out = np.empty((n_members, n_soils, psi.shape[1]), dtype=float)
-    for m in range(n_members):
-        for s in range(n_soils):
-            out[m, s] = np.interp(x[s], GRID_LOG10, curves[m, s])
-    return out
+    i0, w = _bracket(np.log10(psi))            # both (n_soils, n_points)
+    rows = np.arange(n_soils)[:, None]
+    y0 = curves[:, rows, i0]                   # (n_members, n_soils, n_points)
+    y1 = curves[:, rows, i0 + 1]
+    return y0 + (y1 - y0) * w
 
 
 def aggregate(member_values: np.ndarray) -> dict:
@@ -326,12 +340,12 @@ def build_output(parsed: ParsedBatch,
         psi_per_row = frame["psi_kpa"].to_numpy(dtype=float)
         # One column per row, gathered back per soil, so each member is
         # interpolated at exactly the potential its row asked for.
-        vals = np.empty((curves.shape[0], len(frame)), dtype=float)
-        x = np.log10(psi_per_row)
-        for m in range(curves.shape[0]):
-            for r, s in enumerate(parsed.soil_index):
-                vals[m, r] = np.interp(x[r], GRID_LOG10, curves[m, s])
-        agg = aggregate(vals)
+        check_psi_domain(psi_per_row)
+        i0, w = _bracket(np.log10(psi_per_row))          # (n_rows,)
+        soil = np.asarray(parsed.soil_index)
+        y0 = curves[:, soil, i0]                         # (n_members, n_rows)
+        y1 = curves[:, soil, i0 + 1]
+        agg = aggregate(y0 + (y1 - y0) * w)
 
         out = pd.DataFrame({"soil_id": frame["soil_id"].to_numpy()})
         for col in PREDICTORS:
