@@ -518,7 +518,7 @@ st.markdown("""
 ENSEMBLE = load_ensemble()
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["Single Soil", "Batch (v1.1)", "Batch (v1.0)", "Help & FAQ", "About"])
+    ["Single Soil", "Batch (v1.1)", "Batch (v1.0)", "Help", "About"])
 
 # ══════════════════════════════════════════════════════════════════════════
 # Tab 1 — Single Soil  (dashboard layout: inputs left, results right)
@@ -957,7 +957,7 @@ with tab3:
     st.caption(
         "The model published in Ghezzehei (2026), *Water Resources Research*. "
         "Predicted water content depends on the full set of water potentials "
-        "requested, not only on the potential itself — see Help & FAQ."
+        "requested, not only on the potential itself — see Help."
     )
 
     # ── Instructions + template ───────────────────────────────────────────
@@ -1193,11 +1193,11 @@ Rows in the same CSV can have different stages.
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# Tab 4 — Help & FAQ
+# Tab 4 — Help
 # ══════════════════════════════════════════════════════════════════════════
 
 with tab4:
-    st.markdown("#### Help & FAQ")
+    st.markdown("#### Help")
 
     st.markdown("#### Input units")
     st.markdown("""
