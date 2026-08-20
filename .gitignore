@@ -12,3 +12,4 @@ __pycache__/
 onnx_weights_backup/
 app_backup.py
 WATER_POTENTIAL_GRID.md
+.DS_Store

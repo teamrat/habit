@@ -184,6 +184,10 @@ st.markdown("""
 # ── Configuration ─────────────────────────────────────────────────────────
 
 HF_REPO_ID = "Teamrat/habit"
+
+# Model version. Appears in the HuggingFace path, the local bundled-weights
+# path and the cache path, so two versions can never share a cache entry.
+MODEL_VERSION = "v1.0"
 NUM_MEMBERS = 20
 
 # Reference water potentials for the summary cards. These are NOT added to the
@@ -229,7 +233,8 @@ SCALER_PARAMS = {
 
 @st.cache_resource(show_spinner="Loading HABIT ensemble models...")
 def load_ensemble():
-    cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "habit-ptf", "onnx")
+    cache_dir = os.path.join(os.path.expanduser("~"), ".cache",
+                             "habit-ptf", MODEL_VERSION)
     os.makedirs(cache_dir, exist_ok=True)
     sessions = []
     opts = ort.SessionOptions()
@@ -239,11 +244,14 @@ def load_ensemble():
         name = f"member_{i:02d}.onnx"
         local = os.path.join(cache_dir, name)
         if not os.path.exists(local):
-            bundled = os.path.join(os.path.dirname(__file__), "onnx_weights", name)
+            bundled = os.path.join(os.path.dirname(__file__),
+                                   "onnx_weights", MODEL_VERSION, name)
             if os.path.exists(bundled):
                 shutil.copy2(bundled, local)
             else:
-                downloaded = hf_hub_download(repo_id=HF_REPO_ID, filename=f"onnx/{name}")
+                downloaded = hf_hub_download(
+                    repo_id=HF_REPO_ID,
+                    filename=f"{MODEL_VERSION}/{name}")
                 shutil.copy2(downloaded, local)
         sessions.append(ort.InferenceSession(local, opts, providers=["CPUExecutionProvider"]))
     return sessions
