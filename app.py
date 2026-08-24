@@ -1684,8 +1684,12 @@ learning for predicting soil water retention.
 
     st.markdown("#### Changelog")
     st.markdown("""
+**v1.1** — Rewritten to predict on a fixed grid of 151 water potentials, from
+10<sup>-2</sup> to 10<sup>5.5</sup> kPa in steps of 0.05 in log<sub>10</sub>,
+and interpolate to the potentials you request.
+
 **v1.0** — the model published in Ghezzehei (2026), *Water Resources Research*.
-""")
+""", unsafe_allow_html=True)
 
 
 # ── Footer ────────────────────────────────────────────────────────────────
