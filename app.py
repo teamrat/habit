@@ -236,7 +236,10 @@ SCALER_PARAMS = {
 
 # ── Load ONNX ensemble ───────────────────────────────────────────────────
 
-@st.cache_resource(max_entries=1, show_spinner="Loading HABIT ensemble...")
+@st.cache_resource(
+    max_entries=1,
+    show_spinner="Loading the 20-model ensemble — up to a minute on the "
+                 "first visit, instant afterwards.")
 def _load_ensemble(version):
     cache_dir = os.path.join(os.path.expanduser("~"), ".cache",
                              "habit-ptf", version)
